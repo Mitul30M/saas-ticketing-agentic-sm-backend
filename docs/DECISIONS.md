@@ -1,0 +1,46 @@
+# DECISIONS.md — non-obvious design decisions (what / why / alternatives)
+
+Format: 3–5 lines per decision. Newest at the bottom.
+
+---
+
+### 2026-11-10 · Backend-only repo split (`app/` at root, Next.js separate)
+- PLAN.md originally assumed a monorepo with `backend/` + `web/`. The owner keeps the
+  Next.js frontend in a separate repository, so this repo holds only the FastAPI backend.
+- Effect: `backend/app/` → `app/`, `backend/tests/` → `tests/`; imports unchanged (`app.*`).
+- Alternatives: monorepo (rejected: owner preference, smaller assessment repo).
+
+### 2026-11-10 · Python 3.14 via `uv` (not 3.12)
+- PLAN.md said 3.12; the owner's machine ships 3.14 (Homebrew) + uv 0.11.25, and the
+  reference repo already runs 3.14. Locked as `requires-python = ">=3.14"`.
+
+### 2026-11-10 · Migration runner: file-based with `schema_migrations` bookkeeping
+- Mechanism copied from the reference repo (ordered migrations, one transaction each,
+  `schema_migrations` table, `IF NOT EXISTS` DDL), except SQL lives in numbered
+  `db/migrations/*.sql` files (PLAN 4.12) instead of inline Python strings.
+- Alternatives: inline Python strings (reference default; rejected — SQL files review
+  better), Alembic (rejected: heavier than needed).
+
+### 2026-11-10 · DB image: `pgvector/pgvector:pg16`, host port 5433
+- pgvector extension ships in this image; plain `postgres:16-alpine` (reference default)
+  would need manual extension installation.
+- Host port 5433 (reference pattern) avoids collisions with any local Postgres.
+
+### 2026-11-10 · LLM provider: Groq via `langchain-groq` ChatGroq (reference parity)
+- Initial PLAN listed `mock | ollama | openai_compat`. Owner decided: **Groq**, matching
+  the reference project's `ChatGroq` pattern (settings-driven, temp 0, bounded retries,
+  repair-once JSON, deterministic fallback). `stub` remains provider value for no-LLM runs.
+- `LLMClient` abstraction stays as the only call path (AGENTS.md rule); groq is a provider
+  inside it. API key/URL/model configurable via env like the reference.
+
+### 2026-11-10 · Observability: `trace(conn, ticket_id, trace_id, node, kind, ...)` helper
+- Trace style is the **same shape as the reference** single-helper design: one function,
+  JSONB input/output serialized with `default=str`, one row per node/tool/LLM step,
+  readable via an endpoint + UI. Table renamed/extended to `trace_events` per PLAN 4.8
+  (adds tokens/cost/cache_hit from day one).
+
+### 2026-11-10 · Safety triggers live in migrations, tested against real DDL
+- Refund state machine guard and `audit_log` append-only trigger are DB triggers in
+  `003_support.sql`; the integration suite exercises them against the running Postgres
+  (skip-if-down) instead of mocking.
+- Alternatives: enforce only in service code (rejected — agent inserts could bypass).

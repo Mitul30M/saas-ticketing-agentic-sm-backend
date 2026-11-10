@@ -1,0 +1,43 @@
+# Backend-only compose (frontend lives in a separate repo).
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: nimbus
+      POSTGRES_PASSWORD: nimbus
+      POSTGRES_DB: nimbus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nimbus -d nimbus"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"          # host access for local tests/debugging; app uses db:5432
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://nimbus:nimbus@db:5432/nimbus
+      LLM_PROVIDER: ${LLM_PROVIDER:-stub}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      AGENT_TOKEN: ${AGENT_TOKEN:-}
+      STEP_LIMIT: ${STEP_LIMIT:-8}
+      TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-8}
+      REFUND_WINDOW_DAYS: ${REFUND_WINDOW_DAYS:-30}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')\" || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+volumes:
+  pgdata:

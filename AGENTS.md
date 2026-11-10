@@ -44,6 +44,7 @@ If a requested change would weaken any of the above, **stop and ask** instead of
 ## 4. Workflow rules
 - Work **one phase at a time** from `PLAN.md` Part 7. Tick checkboxes in `PLAN.md` only after verifying the Definition of Done with a command.
 - Small, reviewable commits. Conventional messages: `feat(tools): …`, `fix(graph): …`, `test(safety): …`, `docs: …`, `chore: …`.
+- **The agent never runs `git commit`/`git push`.** It only **stages** changes with `git add` (grouped per logical step) and reports the suggested commit message(s); the **owner writes all commits manually** using the owner's `phase-{n}: <action> …` convention.
 - **Tests first for safety-critical code** (tools, executor, approval, idempotency, grounding). The five acceptance tests (AT1–AT5, PLAN §1.4) live in `tests/safety/` and must stay green at all times.
 - Write the **simplest thing that works** and is explainable. The owner must be able to explain every line and make a live change in an interview — avoid clever abstractions, metaprogramming, and unneeded dependencies.
 - Prefer deleting code to adding config. No speculative features outside `PLAN.md` (stretch goals only after Phase 7 DoD).
