@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -14,7 +15,7 @@ app_state: dict[str, db.DictConn] = {}
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     conn = db.connect(settings.database_url)
     db.run_migrations(conn)
     app_state["db"] = conn
@@ -47,7 +48,7 @@ def get_conn() -> db.DictConn:
 
 
 @app.get("/healthz")
-def healthz():
+def healthz() -> dict[str, str]:
     try:
         conn = get_conn()
         conn.execute("SELECT 1").fetchone()

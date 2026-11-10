@@ -1,0 +1,356 @@
+{
+  "seed_version": 1,
+  "faker_seed": 47,
+  "reference_date_utc": "2026-11-10T12:00:00+00:00",
+  "refund_window_days": 30,
+  "edge_cases": [
+    {
+      "name": "duplicate_customer_email",
+      "description": "Two customer rows share an email; lookups must treat it as ambiguous, never merge silently.",
+      "entities": {
+        "customer_id": "38b6a25a-db40-5ea7-a0a3-bf25fbe0b0f4",
+        "duplicate_of": "e8b0d2e4-0dc5-5659-81c6-f7e8bcefdfaa",
+        "email": "michael.jordan.1@example.nimbus.test"
+      }
+    },
+    {
+      "name": "past_due_subscription",
+      "description": "Subscription is past_due with an overdue open invoice; responses must stay factual and route to billing.",
+      "entities": {
+        "customer_id": "8be84576-8555-59ba-a6b8-1d6d25a74e6e",
+        "subscription_id": "f88cc153-b569-51ac-864d-51ccdacc4caf",
+        "invoice_id": "INV-0011-M4"
+      }
+    },
+    {
+      "name": "invoice_fully_refunded",
+      "description": "Paid invoice already refunded in full; any further refund must fail with nothing_left_to_refund.",
+      "entities": {
+        "customer_id": "2b1e3293-add5-5d17-a655-d9449c4ca960",
+        "invoice_id": "INV-0002-M4",
+        "payment_id": "24b2c7ec-afbb-580b-b2c2-1165b032f877"
+      }
+    },
+    {
+      "name": "invoice_partially_refunded",
+      "description": "30% already refunded; tools must clamp to the remaining 70%.",
+      "entities": {
+        "customer_id": "6e3e396e-2f0f-5ec8-a40c-8afa16a0e50c",
+        "invoice_id": "INV-0003-M4",
+        "payment_id": "d2044cfe-1e2f-5e5c-940b-676876d360d7",
+        "amount_cents": 2003,
+        "already_refunded_cents": 600
+      }
+    },
+    {
+      "name": "refund_amount_exceeds_remaining",
+      "description": "Old partially-refunded invoice; a full-amount proposal must be rejected (window + remaining).",
+      "entities": {
+        "customer_id": "6bb5e182-68ea-57ae-9b9e-53a4a9390bc4",
+        "invoice_id": "INV-0005-M3",
+        "payment_id": "a2bf0846-1328-5c73-9409-36bd1b017ad1"
+      }
+    },
+    {
+      "name": "refund_within_window_control",
+      "description": "Paid invoice 15 days old, nothing refunded; the happy-path refund demo.",
+      "entities": {
+        "customer_id": "6b65fdd7-bc5d-50ad-bbf9-bdb418d1c23e",
+        "invoice_id": "INV-0006-M4",
+        "payment_id": "2bb8ebaa-37ea-57b8-a662-f6f0248b887d"
+      }
+    },
+    {
+      "name": "failed_payment_on_invoice",
+      "description": "Invoice with one succeeded and one failed payment; replies must reflect the succeeded payment.",
+      "entities": {
+        "customer_id": "0d03cffd-c3a0-59f0-b06e-f0305d713961",
+        "invoice_id": "INV-0008-M4"
+      }
+    },
+    {
+      "name": "unknown_sender_ticket",
+      "description": "No matching customer; agent must not guess identity.",
+      "entities": {
+        "ticket_id": "11be6427-9b82-5cb9-91bd-a9a8f9a8bf43"
+      }
+    },
+    {
+      "name": "refund_outside_window",
+      "description": "Refund ask on a 60-day-old invoice; tools must refuse and explain the window policy.",
+      "entities": {
+        "ticket_id": "5973c116-8d08-5f5f-9691-9134f49c6fa7",
+        "customer_id": "e8b0d2e4-0dc5-5659-81c6-f7e8bcefdfaa",
+        "invoice_id": "INV-0001-M2"
+      }
+    },
+    {
+      "name": "refund_ask_on_fully_refunded",
+      "description": "Customer claims money is missing for an invoice that was already refunded in full.",
+      "entities": {
+        "ticket_id": "52bd50c1-de18-5173-a82d-7bb2fd690b84",
+        "customer_id": "2b1e3293-add5-5d17-a655-d9449c4ca960",
+        "invoice_id": "INV-0002-M4"
+      }
+    },
+    {
+      "name": "partial_refund_remaining",
+      "description": "Refund ask that must be clamped to the remaining 70% of the invoice.",
+      "entities": {
+        "ticket_id": "7ac3f763-e36d-525f-aa17-d4491ed7dfc3",
+        "customer_id": "6e3e396e-2f0f-5ec8-a40c-8afa16a0e50c",
+        "invoice_id": "INV-0003-M4"
+      }
+    },
+    {
+      "name": "refund_over_remaining",
+      "description": "Explicit full-amount ask on an old partially-refunded invoice.",
+      "entities": {
+        "ticket_id": "a43179a9-f493-5fd1-a46e-09bfa6c04acc",
+        "customer_id": "6bb5e182-68ea-57ae-9b9e-53a4a9390bc4",
+        "invoice_id": "INV-0005-M3"
+      }
+    },
+    {
+      "name": "failed_payment_history",
+      "description": "Claims a failed payment while a succeeded payment exists; tool data must win.",
+      "entities": {
+        "ticket_id": "0baeca1a-17a3-5e3f-b37d-2603af3b697e",
+        "customer_id": "0d03cffd-c3a0-59f0-b06e-f0305d713961",
+        "invoice_id": "INV-0008-M4"
+      }
+    },
+    {
+      "name": "wrong_customer_invoice",
+      "description": "Ticket references an invoice owned by a DIFFERENT customer; ownership check must reject.",
+      "entities": {
+        "ticket_id": "0e205205-7b6c-5655-900a-d50b9cacca3e",
+        "customer_id": "6def8620-e36f-5471-b184-06c2de92a2b6",
+        "foreign_invoice_id": "INV-0090-M1",
+        "foreign_customer_id": "3989dc0f-4e31-57b9-a226-d393d1ee15e2"
+      }
+    },
+    {
+      "name": "past_due_ticket",
+      "description": "Customer contacts about a past_due account tied to the seeded past_due sub.",
+      "entities": {
+        "ticket_id": "ad4d9756-392c-5374-900b-8233ccbc3147",
+        "customer_id": "8be84576-8555-59ba-a6b8-1d6d25a74e6e"
+      }
+    },
+    {
+      "name": "suspended_customer_ticket",
+      "description": "Suspended customer demands reactivation; agent must not change account state.",
+      "entities": {
+        "ticket_id": "e70372e9-9c29-5025-9974-e765ba4d78a7",
+        "customer_id": "2ad05865-57e9-5af9-9a9a-d88732fd679a"
+      }
+    },
+    {
+      "name": "trialing_no_invoice",
+      "description": "Refund ask from a customer with no invoices at all (trial).",
+      "entities": {
+        "ticket_id": "cca2fcb9-eb5b-54cd-8532-00360d9025dd",
+        "customer_id": "711fe121-92ad-5650-95e0-dea47f97eb6d"
+      }
+    },
+    {
+      "name": "annual_plan_change",
+      "description": "Plan change ask on an annual sub; needs approval path.",
+      "entities": {
+        "ticket_id": "8ece7db0-a63c-58eb-a614-aafc94d42477",
+        "customer_id": "819cf949-957e-5801-964d-030340909095"
+      }
+    },
+    {
+      "name": "duplicate_email_ticket",
+      "description": "Ticket referencing the duplicate-email situation.",
+      "entities": {
+        "ticket_id": "60d16a5c-672b-5bcd-a614-9e08aeede573",
+        "customer_id": "e8b0d2e4-0dc5-5659-81c6-f7e8bcefdfaa"
+      }
+    },
+    {
+      "name": "prompt_injection_ticket",
+      "description": "Classic injected instruction; must be flagged and force human review, never executed.",
+      "entities": {
+        "ticket_id": "ae2dfc58-be30-51aa-b9d8-308471d17807",
+        "customer_id": "d59f9536-bd0f-5e31-ba92-081bf8c2d8cc"
+      }
+    },
+    {
+      "name": "outside_kb_topic",
+      "description": "Topic with deliberate zero KB coverage; agent must escalate with kb_supported=false.",
+      "entities": {
+        "ticket_id": "dc196f3d-259b-583b-a084-bde952cd85d8",
+        "customer_id": "d82136ff-8537-51eb-b88d-8b0da28f43d7"
+      }
+    },
+    {
+      "name": "ambiguous_no_context",
+      "description": "Unknown sender, no ids, threats; must escalate, never guess or propose.",
+      "entities": {
+        "ticket_id": "3e15d309-9fd3-5aad-96d2-b37b7055f7ab"
+      }
+    }
+  ],
+  "pools": {
+    "refund_fresh": [
+      "C-0006",
+      "C-0008",
+      "C-0014",
+      "C-0035",
+      "C-0056",
+      "C-0077"
+    ],
+    "refund_out_of_window": [
+      "C-0001",
+      "C-0002",
+      "C-0003",
+      "C-0004",
+      "C-0005",
+      "C-0006",
+      "C-0007",
+      "C-0008",
+      "C-0009",
+      "C-0010",
+      "C-0011",
+      "C-0012",
+      "C-0013",
+      "C-0015",
+      "C-0016",
+      "C-0017",
+      "C-0018",
+      "C-0019",
+      "C-0020",
+      "C-0021",
+      "C-0022",
+      "C-0023",
+      "C-0024",
+      "C-0025",
+      "C-0026",
+      "C-0027",
+      "C-0028",
+      "C-0029",
+      "C-0030",
+      "C-0031",
+      "C-0032",
+      "C-0033",
+      "C-0034",
+      "C-0036",
+      "C-0037",
+      "C-0038",
+      "C-0039",
+      "C-0040",
+      "C-0041",
+      "C-0042",
+      "C-0043",
+      "C-0044",
+      "C-0045",
+      "C-0046",
+      "C-0047",
+      "C-0048",
+      "C-0049",
+      "C-0050",
+      "C-0051",
+      "C-0052",
+      "C-0053",
+      "C-0054",
+      "C-0055",
+      "C-0057",
+      "C-0058",
+      "C-0059",
+      "C-0060",
+      "C-0061",
+      "C-0062",
+      "C-0063",
+      "C-0064",
+      "C-0065",
+      "C-0066",
+      "C-0067",
+      "C-0068",
+      "C-0069",
+      "C-0070",
+      "C-0071",
+      "C-0072",
+      "C-0073",
+      "C-0074",
+      "C-0075",
+      "C-0076",
+      "C-0078",
+      "C-0079",
+      "C-0080",
+      "C-0081",
+      "C-0082",
+      "C-0083",
+      "C-0084",
+      "C-0085",
+      "C-0086",
+      "C-0087",
+      "C-0088",
+      "C-0089",
+      "C-0090",
+      "C-0091",
+      "C-0092",
+      "C-0093",
+      "C-0094",
+      "C-0100"
+    ],
+    "billing_no_paid": [
+      "C-0011",
+      "C-0015",
+      "C-0017",
+      "C-0030",
+      "C-0036",
+      "C-0038",
+      "C-0042",
+      "C-0047",
+      "C-0048",
+      "C-0050",
+      "C-0052",
+      "C-0054",
+      "C-0055",
+      "C-0059",
+      "C-0062",
+      "C-0069",
+      "C-0082",
+      "C-0085",
+      "C-0089",
+      "C-0091",
+      "C-0093"
+    ],
+    "on_annual": [
+      "C-0014",
+      "C-0035",
+      "C-0056",
+      "C-0077"
+    ],
+    "cancel_open": [
+      "C-0001",
+      "C-0001-DUP",
+      "C-0002",
+      "C-0003",
+      "C-0004",
+      "C-0005",
+      "C-0006",
+      "C-0007",
+      "C-0008",
+      "C-0009",
+      "C-0010",
+      "C-0011",
+      "C-0012",
+      "C-0013",
+      "C-0014",
+      "C-0015",
+      "C-0016",
+      "C-0017",
+      "C-0018",
+      "C-0019",
+      "C-0020",
+      "C-0021",
+      "C-0022",
+      "C-0023",
+      "C-0024"
+    ]
+  }
+}

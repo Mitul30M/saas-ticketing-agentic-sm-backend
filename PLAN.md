@@ -399,12 +399,13 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 - [x] `004_platform.sql`: trace_events, idempotency_keys, llm_cache, jobs (if used).
 - [x] `005_kb.sql`: kb_articles, kb_chunks + GIN + HNSW indexes.
 - [x] DB triggers/constraints: refund state-machine guard; `amount_refunded_cents <= amount_cents`; audit_log append-only (revoke UPDATE/DELETE or trigger). *Verified by `tests/integration/test_db_schema.py` against the running DB (8/8 green).*
-- [ ] `db/seed/seed.py`: deterministic Faker seed (fixed seed value) → ~100 customers, 4 plans, subs, invoices, payments.
-- [ ] `db/seed/edge_cases.py`: all edge cases listed in 4.2.2; write `data/seed_manifest.json` mapping edge-case name → entity IDs.
+- [x] `db/seed/seed.py`: deterministic Faker seed (fixed seed value) → ~100 customers, 4 plans, subs, invoices, payments. *Verified with `make seed` twice: stable row counts (plans 4, customers 101, subscriptions 144, invoices 368, payments 348).*
+- [x] `db/seed/edge_cases.py`: all edge cases listed in 4.2.2; write `data/seed_manifest.json` mapping edge-case name → entity IDs. *Verified: 22 manifest entries and repeatable output.*
 - [ ] Write **25–40 KB articles** (`data/kb/KB-001…`), ~70% coverage design, 2–4 near-duplicates; record in `data/kb/COVERAGE.md` which ticket topics are covered/uncovered (this is ground truth for eval).
 - [ ] `scripts/ingest_kb.py`: parse front-matter, chunk (heading-aware), embed (cached), upsert; idempotent (hash-based skip).
-- [ ] Download Tobi-Bueck CSV into `data/raw/` (gitignored). Read dataset card; record provenance note in `docs/DECISIONS.md`.
+- [x] Download Tobi-Bueck CSV into `data/raw/` (gitignored). Read dataset card; record provenance note in `docs/DECISIONS.md`. *Verified locally: CSV + dataset card present; source is tickets-only and is rewritten into Nimbus records.*
 - [ ] `scripts/link_tickets.py`: filter EN → pick 6–8 topics → clean placeholders → rewrite to Nimbus context → assign customers/invoices → write `data/tickets_all.jsonl` (≥80) + hold out dev split.
+- **Current verification:** linker runs and produces 70 load tickets + 10 disjoint dev tickets (80 total), all with seeded customer references. The checklist item remains open because `data/tickets_all.jsonl` is not yet at the planned ≥80 load-ticket target; KB authoring/ingestion is also still open.
 - **DoD:** `make seed` twice yields identical row counts; `make ingest-kb` twice does not duplicate chunks; ≥80 linked tickets with valid `customer_id`s; seed_manifest lists every edge case.
 
 ### Phase 2 — Tools, LLM abstraction, retrieval, triage (Day 1–2)

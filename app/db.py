@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
@@ -29,7 +29,7 @@ def connect(conninfo: str) -> DictConn:
         conninfo = f"{conninfo}{sep}connect_timeout=5"
     try:
         conn = psycopg.connect(conninfo, row_factory=dict_row, autocommit=True)
-        return cast(DictConn, conn)
+        return conn
     except psycopg.OperationalError as exc:
         raise RuntimeError(f"database connect failed: {exc}") from exc
 
@@ -78,8 +78,8 @@ def trace(
     trace_id: str,
     node: str,
     kind: str,
-    input_: dict | None = None,
-    output=None,
+    input_: dict[str, Any] | None = None,
+    output: Any = None,
     *,
     status: str = "ok",
     error: str | None = None,
