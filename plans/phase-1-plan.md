@@ -44,5 +44,6 @@
 
 ## Log & achievements (append)
 
-- 2026-11-11 — Phase 1 seed verification: `make seed` completed twice with stable row counts; edge-case seeding produced 22 manifest entries. The Tobi-Bueck CSV and dataset card are present under `data/raw/`, and provenance/rewrite constraints are recorded in `docs/DECISIONS.md`.
+- 2026-11-11 — Phase 1 seed verification: `make seed` completed twice with stable row counts; edge-case seeding produced 23 manifest entries. The Tobi-Bueck CSV and dataset card are present under `data/raw/`, and provenance/rewrite constraints are recorded in `docs/DECISIONS.md`.
 - 2026-11-11 — Fixed linker formatting and pool-selection bugs; `uv run python -m scripts.link_tickets` now produces 70 load tickets + 10 dev tickets (80 total), all with seeded customer references. The ≥80 load-ticket checklist item remains open; KB authoring and ingestion remain open.
+- 2026-11-11 — Phase 1b safety/data fixes: migration 006 adds sender identity, soft dedupe, database-enforced approval transitions, and idempotent outbox/job/cache columns. `AS_OF` makes business-time calculations deterministic. Seed now exports 16 hand-written tickets, including 9 refund scenarios, to `data/eval/handwritten.jsonl`; DB integration safety checks pass 12/12.

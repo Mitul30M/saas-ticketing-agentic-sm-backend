@@ -112,6 +112,15 @@
       }
     },
     {
+      "name": "refund_within_window_ticket",
+      "description": "Happy-path refund ask for the seeded in-window control invoice.",
+      "entities": {
+        "ticket_id": "42344fed-777a-5ea9-a24d-eb7e1a54e109",
+        "customer_id": "6b65fdd7-bc5d-50ad-bbf9-bdb418d1c23e",
+        "invoice_id": "INV-0006-M4"
+      }
+    },
+    {
       "name": "failed_payment_history",
       "description": "Claims a failed payment while a succeeded payment exists; tool data must win.",
       "entities": {

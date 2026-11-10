@@ -56,3 +56,9 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - Consequence: seed the business DB first, then link tickets to it; inject invoice refs into billing
   bodies; "order status" tool maps to subscription+invoice status; payments table carries the exact
   fields refund tools must check. Requirements captures live in PLAN §4.2.1 "Reality check".
+
+### 2026-11-11 · Deterministic business clock and database approval gate
+- Seed and policy-time calculations use `AS_OF` (default `2026-11-10T12:00:00Z`) rather than the
+  wall clock, so refund-window labels and demo data do not change between runs.
+- Migration 006 makes sender identity explicit and requires a recorded human approval plus timestamps
+  before refund or plan-change state transitions can reach `approved` or `executed`. Requirements captures live in PLAN §4.2.1 "Reality check".

@@ -26,7 +26,7 @@ from app.db import connect
 
 SEED_FAKER_SEED = 47
 SEED_NAMESPACE = uuid.UUID("3e5f8a1c-9b2d-4e67-a1c3-d5f7b9e1c2a4")
-REF_DATE = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+REF_DATE = settings.as_of.astimezone(UTC)
 
 PLANS: list[tuple[str, str, str, int, int, list[str]]] = [
     ("PLAN-FREE", "free", "Free", 0, 0, ["1 seat", "community support"]),

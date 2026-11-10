@@ -1,6 +1,7 @@
 # PLAN.md — Agentic Support Ticket Triage with Approval Gate
 
 > StarvoxLabs technical assessment · AI/ML Intern · 5 calendar days
+> **Last reviewed 2026-11-11** against repo commit `6aa1827`. Findings and fixes are in **Part 10 (Review amendments)**; tags like `[R3]` below point to them.
 > This file is the single source of truth for the project. Read it fully, then follow **Part 7 (Phase Checklists)** in order. `AGENTS.md` holds the standing rules for the coding agent.
 
 ---
@@ -82,11 +83,12 @@ These are the parts an interviewer will probe. Write/understand them yourself ev
 | DB | **PostgreSQL** (official image via Docker) + **pgvector** | One store for business data, LangGraph checkpoints, traces, vectors |
 | Backend | **Python 3.14 + FastAPI + LangGraph** (managed via `uv`), `psycopg` 3 (parameterised SQL) | LangGraph is the brief's named framework; **this repo is backend-only** |
 | Frontend | **Next.js (App Router, TypeScript, Tailwind)** — **separate repo** | Customer portal + agent dashboard; talks to this backend via its public API only |
-| LLM | Provider-agnostic `LLMClient`: `mock` · `ollama` (local) · `openai_compat` (Groq/Gemini/etc. free tiers) | Free/OSS allowed; mock for CI, real model for headline eval numbers |
+| LLM | `LLMClient` with providers `groq` (ChatGroq, free tier, headline numbers) · `stub` (deterministic, no key; CI/plumbing). `ollama`/`openai_compat` dropped, see `docs/DECISIONS.md` | Free/OSS allowed; stub for CI, real model for headline numbers; the LLM cache makes real-model runs replayable offline [R12] |
 | Embeddings | Local open model (e.g. `BAAI/bge-small-en-v1.5`, 384-dim) | No paid API needed |
 | Retrieval | **Hybrid**: Postgres FTS (`tsvector`) + pgvector → **RRF** fusion → optional **cross-encoder rerank** | User's stated goal; measurable ablation |
 | Tracing | Own `trace_events` / `tool_calls` tables + trace viewer in dashboard; optional MLflow for eval runs | Brief allows "your own logs" |
 | Agent write access | **Propose-only.** Model can never execute writes | Core safety property |
+| Demo clock | `AS_OF` setting (default = the seed reference date) injected into tools/policy; **no `now()` in business rules** [R2] | Refund-window labels must not flip as days pass |
 
 **Guiding principle:** *the LLM proposes, deterministic code disposes.* Everything safety-critical (validation, limits, approval, execution) is plain code + DB constraints, not prompts.
 
@@ -96,9 +98,9 @@ These are the parts an interviewer will probe. Write/understand them yourself ev
 
 ### 4.1 Architecture (logical)
 
-```
- > NOTE (repo split): the two Next.js apps live in a **separate frontend repo**; only the backend (`FastAPI` → DB) is in this repo.
+> Repo split: the two Next.js apps live in a **separate frontend repo**; only the backend (FastAPI → DB) is in this repo.
 
+```
  Next.js (customer portal /submit)        Next.js (agent dashboard /dashboard)
             │                                         │
             └──────────────►  FastAPI (REST)  ◄───────┘
@@ -111,7 +113,7 @@ These are the parts an interviewer will probe. Write/understand them yourself ev
                     ┌─────────────┼─────────────┐
                     ▼             ▼             ▼
                  Tools        LLMClient     Trace/Cost logger
-        (kb_search, get_customer,  (mock|ollama|API)     │
+        (kb_search, get_customer,  (stub|groq)           │
          get_subscription, get_invoice,                  │
          get_order_status*, propose_refund,              │
          propose_plan_change)                            │
@@ -211,9 +213,9 @@ Seed size: ~100 customers, 4 plans, ~150 subscriptions, ~400 invoices/payments. 
 | Tool | Type | Inputs (validated) | Returns |
 |---|---|---|---|
 | `kb_search` | read | `query: str(3..300)`, `top_k: int(1..8)`, `category?: enum` | ranked chunks `{kb_id,title,text,score,updated}` via hybrid+rerank |
-| `get_customer` | read | exactly one of `customer_id: uuid` \| `email: EmailStr` | customer + plan + status; `NOT_FOUND` / `AMBIGUOUS` typed errors |
+| `get_customer` | read | exactly one of `customer_id: uuid` \| `email: EmailStr` | customer + plan + status; `NOT_FOUND` / `AMBIGUOUS` typed errors. **The graph passes `ticket.from_email` (the transport sender). An email or ID *claimed in the body* is only compared against it, never used for lookup** [R5] |
 | `get_subscription` | read | `customer_id: uuid` | active subscription, period, billing cycle |
-| `get_invoice` | read | `invoice_id: regex ^INV-\d{4,8}$` | invoice + payment(s), refunded-to-date, refund-window eligibility computed server-side |
+| `get_invoice` | read | `invoice_id: regex ^INV-[A-Z0-9-]{3,24}$` (seeded ids look like `INV-0001-M1`; the old `^INV-\d{4,8}$` rejects every one of them [R6]) | invoice + payment(s), refunded-to-date, refund-window eligibility computed server-side |
 | `propose_refund` | **write (propose-only)** | `invoice_id`, `amount_cents: int(1..)`, `reason: str(10..500)`, `kb_ids: list[str]` (required, ≥1) | creates `refund_requests` row in `pending_approval` with evidence; **cannot execute** |
 | `propose_plan_change` | **write (propose-only)** | `customer_id`, `to_plan_code: enum`, `effective: enum('now','next_cycle')` | creates `plan_change_requests` row in `pending_approval` |
 | `escalate_to_human` | control | `reason_code: enum`, `note: str` | sets ticket status `awaiting_human`, picks queue |
@@ -257,8 +259,8 @@ A reply may be drafted only if **all** hold:
 Otherwise → **escalate** with `reason_code=NOT_IN_KB` (or `LOW_CONFIDENCE`, `CONFLICTING_SOURCES`). The reply text for the customer is *never* a guess.
 
 ### 4.6 Idempotency (highlight feature — three layers)
-1. **API layer:** `Idempotency-Key` header on `POST /tickets`, `/approvals`, `/refunds/*`. Table `idempotency_keys(key, endpoint, request_hash, response_status, response_body, created_at)`. Same key + same body → replay stored response; same key + different body → `422`. Also `tickets.content_hash` unique → duplicate email submissions collapse (log "duplicate").
-2. **Business layer:** `refund_requests` `unique(invoice_id, idempotency_key)` + partial unique index to block a second *open* refund per invoice; executor uses `SELECT … FOR UPDATE` and checks `status='approved'` before moving to `executed` in one transaction; double-click/duplicate approvals are no-ops.
+1. **API layer:** `Idempotency-Key` header on `POST /tickets`, `/approvals`, `/refunds/*`. Table `idempotency_keys(key, endpoint, request_hash, response_status, response_body, created_at)`. Same key + same body → replay stored response; same key + different body → `422`. Duplicate submissions collapse through a **soft, windowed** check in the intake service (same `from_email` + `content_hash` within N minutes → return the existing ticket, log "duplicate"). The global UNIQUE on `content_hash` is dropped in migration 006 because it swallows a customer's legitimate identical follow-up [R4].
+2. **Business layer:** `refund_requests` `unique(invoice_id, idempotency_key)` + partial unique index to block a second *open* refund per invoice. The proposal key is **deterministic**, `sha256(ticket_id|invoice_id|amount_cents)`, never a random UUID (a random key makes every retry look new). Approvals have one final decision per action and `outbox` one row per approval (migration 006); executor uses `SELECT … FOR UPDATE` and checks `status='approved'` before moving to `executed` in one transaction; double-click/duplicate approvals are no-ops.
 3. **LLM/cost layer:** `llm_cache(key=sha256(provider|model|params|prompt), response, tokens_in, tokens_out, created_at)`. Re-running triage or evals with identical inputs costs **$0** and is deterministic; report cache hit-rate in cost section. Also embed-cache for chunks (hash of text).
 Tests: replay same request 5× → one DB row, identical response; concurrent approvals → exactly one execution.
 
@@ -311,6 +313,8 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
  "must_not":["execute_refund_without_approval"],"tags":["refund","within_window"]}}
 ```
 **Mix:** ~50% KB-supported straightforward, ~20% not-in-KB, ~10% refund edge cases, ~10% injection/safety, ~10% confusing/ambiguous/tool-failure injected.
+**Clock rule [R2]:** labels such as `within_window` are computed against the fixed `AS_OF`, never `now()`.
+**Sources [R3]:** the hand-written edge tickets currently inserted straight into the DB by `db/seed/edge_cases.py` must also be exported to `data/eval/handwritten.jsonl` (one source of truth) and extended with the missing refund cases. Dataset-derived tickets alone contain no refund asks.
 
 **Metrics (script: `eval/run_eval.py` → `eval/results/<run>.json` + markdown table):**
 | Metric | Definition |
@@ -323,7 +327,7 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 | Cost | tokens + $ per ticket, shadow-priced per 1,000 tickets, cache hit-rate |
 | Latency | p50/p95 end-to-end, per node |
 **Ablations (cheap, high signal):** BM25-only vs vector-only vs hybrid vs hybrid+rerank on retrieval hit@k; threshold sweep τ vs escalation precision/recall.
-**Modes:** `--llm mock` (CI/plumbing, deterministic; must not read gold labels) and `--llm real` (headline numbers; state the model used).
+**Modes:** `--llm stub` (CI/plumbing, deterministic; must not read gold labels) and `--llm groq` (headline numbers; state the model used). `--llm replay` serves answers from the committed cache [R12].
 **Failure analysis:** ≥5 failures (aim 8) in `docs/FAILURE_ANALYSIS.md`: ticket, expected vs actual, trace excerpt, root cause (retrieval / prompt / label noise / tool), fix applied or proposed.
 
 ### 4.12 Repository layout
@@ -337,7 +341,7 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 │   ├── api/ tickets.py approvals.py kb.py metrics.py admin.py
 │   ├── agent/ graph.py state.py  nodes/*.py  prompts/*.md  guards.py
 │   ├── tools/ registry.py schemas.py kb_search.py customers.py billing.py proposals.py
-│   ├── llm/ base.py mock.py ollama.py openai_compat.py cache.py
+│   ├── llm/ base.py stub.py groq.py cache.py
 │   ├── retrieval/ chunker.py embed.py hybrid.py rerank.py
 │   └── services/ approvals.py executor.py idempotency.py tracing.py cost.py
 ├── tests/ unit/ integration/ safety/ (acceptance tests AT1–AT5)
@@ -406,10 +410,20 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 - [x] Download Tobi-Bueck CSV into `data/raw/` (gitignored). Read dataset card; record provenance note in `docs/DECISIONS.md`. *Verified locally: CSV + dataset card present; source is tickets-only and is rewritten into Nimbus records.*
 - [ ] `scripts/link_tickets.py`: filter EN → pick 6–8 topics → clean placeholders → rewrite to Nimbus context → assign customers/invoices → write `data/tickets_all.jsonl` (≥80) + hold out dev split.
 - **Current verification:** linker runs and produces 70 load tickets + 10 disjoint dev tickets (80 total), all with seeded customer references. The checklist item remains open because `data/tickets_all.jsonl` is not yet at the planned ≥80 load-ticket target; KB authoring/ingestion is also still open.
-- **DoD:** `make seed` twice yields identical row counts; `make ingest-kb` twice does not duplicate chunks; ≥80 linked tickets with valid `customer_id`s; seed_manifest lists every edge case.
+- **DoD:** `make seed` twice yields identical row counts **and identical dates** [R2]; `make ingest-kb` twice does not duplicate chunks; ≥50 load tickets (the brief's minimum; 70 already exist) plus the hand-written set, all with valid `customer_id`s; seed_manifest lists every edge case.
+
+### Phase 1b — Data fixes before KB work (added 2026-11-11, do these first)
+These close gaps found in review (Part 10). Do them before writing the KB, because the KB is written *around* the tickets.
+- [x] **[R1/R4/R5] Migration 006** (`db/migrations/006_safety_and_dashboard.sql`): sender columns, soft dedupe index, DB-enforced refund/plan-change approval gate, outbox/job/cache columns. Integration coverage now includes approval-row requirements, execution timestamps, plan-change jumps, final-approval uniqueness, and outbox uniqueness; **12/12 DB checks pass**.
+- [x] **[R2] Fixed clock:** `AS_OF` is configured in `app/config.py` (default `2026-11-10T12:00:00Z`), used by seed/linker business-time queries, and reflected in `.env.example`. `make seed` twice produced identical counts and dates.
+- [ ] **[R2] Invoice ages:** base monthly invoices are issued at exactly 30/60/90/120 days, so none is inside the 30-day window. Add a few base invoices at 5–25 days so refund-in-window is not only an edge-case row.
+- [x] **[R3] Refund tickets:** hand-written edge data now exports 16 tickets, including 9 refund scenarios, the happy-path `INV-0006-M4` ticket, and the corrected `$20.02` claim for `INV-0005-M3`.
+- [ ] **[R7] Linker quality gate:** drop off-domain tickets (hospital/medical/Hadoop/"the client"), fix empty subjects, re-check topic vs content (a data-breach email was bucketed as `invoice_question` and given a billing sentence). Add a `reviewed: true` flag and hand-review all 80.
+- [x] **[R3/R14] One source of truth:** DB-resident edge tickets are exported to `data/eval/handwritten.jsonl`; export verified at 16 records. The dev split remains open because it still needs ≥20 records with ≥8 not-in-KB.
+- [x] Add `from_email` to linked ticket records and seeded edge tickets; verified on all 70 load records, with body-claimed emails retained as untrusted text.
 
 ### Phase 2 — Tools, LLM abstraction, retrieval, triage (Day 1–2)
-- [ ] `llm/base.py`: `LLMClient.generate(messages, schema|None, tools|None, **params)` returning text/structured + usage; providers: `mock`, `ollama`, `openai_compat`; shared retry/repair for JSON; timeout.
+- [ ] `llm/base.py`: `LLMClient.generate(messages, schema|None, tools|None, **params)` returning text/structured + usage; providers: `stub`, `groq` (matches `app/config.py`); shared retry/repair for JSON; timeout.
 - [ ] `llm/cache.py`: sha256 cache wrapper (layer 3 idempotency); logs `cache_hit`.
 - [ ] `tools/schemas.py`: Pydantic models for every tool input/output + `ToolError` codes.
 - [ ] Implement tools per 4.3 with ownership/business-rule validation; each wrapped by `registry.call(name, args, ctx)` → validation → timeout → typed result → trace row.
@@ -417,6 +431,9 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 - [ ] Unit tests: every tool — valid input, each invalid input class, each business-rule failure (unknown customer, ownership mismatch, over-refund, outside window, duplicate open request), timeout simulation.
 - [ ] `agent/nodes/triage.py`: structured output `{category, priority, sentiment, reasons{category,priority,sentiment}}`; enums fixed in one module; deterministic `category → queue` map.
 - [ ] Triage prompt files in `agent/prompts/` (versioned, short, ticket text delimited as untrusted).
+- [ ] **[R9]** `app/db.py`: replace the single shared connection in `app/main.py` with a `psycopg_pool.ConnectionPool` (request-scoped connections; the dependency is already installed).
+- [ ] **[R8]** LLM settings: raise `LLM_TIMEOUT_S` from 3.5 to ~20–30 for structured/draft calls, and define `LLM_MAX_CALLS` as *retries per call*, not calls per run (one ticket needs ≥3–4 LLM calls).
+- [ ] **[R11]** At KB ingest, prepend `title — heading path` to the stored chunk `text` so FTS and embeddings both see it (a generated `tsv` cannot use `array_to_string`; Postgres rejects it as non-immutable).
 - **DoD:** `pytest tests/unit` green; triage runs on 10 dev tickets with valid structured output; retrieval returns sensible top-3 for 5 hand-checked queries.
 
 ### Phase 3 — LangGraph agent, grounding, abstention, failure path (Day 2)
@@ -431,7 +448,7 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 
 ### Phase 4 — API, approval service, idempotency, tracing (Day 3)
 - [ ] FastAPI app, routers per 4.9; Pydantic request/response models; CORS for web origin; agent-token auth dependency for dashboard routes.
-- [ ] Background execution of agent runs (BackgroundTasks or jobs-table worker); status transitions persisted.
+- [ ] Background execution of agent runs: use the `jobs` table with `FOR UPDATE SKIP LOCKED`, stale-lock reclaim via `locked_at`, `max_attempts`, and `dedupe_key` (columns added in 006) so a double enqueue is one job; resumes after approval are a second job kind. Status transitions persisted.
 - [ ] `services/idempotency.py`: dependency/middleware for `Idempotency-Key` (replay, mismatch→422, concurrency-safe via unique insert).
 - [ ] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email).
 - [ ] `services/tracing.py`: decorators for nodes/tools/LLM calls → `trace_events` with tokens, cost (from `config/pricing.yaml`), cache_hit, duration.
@@ -454,7 +471,7 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 ### Phase 6 — Evaluation, safety tests, failure analysis (Day 4)
 - [ ] Build `data/eval/eval_set.jsonl` (≥40) with gold labels per 4.11; **hand-review every label**; commit `eval/LABELING_GUIDE.md` (definitions of category/priority/sentiment, when to escalate).
 - [ ] Tune prompts/τ on `data/dev/` only; then **freeze** (tag commit `eval-freeze`).
-- [ ] `eval/run_eval.py`: runs the graph on each ticket in an isolated schema/fixture DB with auto-approve **disabled** (it must stop at the gate; evaluate proposals), supports `--llm mock|real`, `--limit`, `--concurrency`; stores per-ticket results + traces.
+- [ ] `eval/run_eval.py`: runs the graph on each ticket in an isolated schema/fixture DB with auto-approve **disabled** (it must stop at the gate; evaluate proposals), supports `--llm stub|groq|replay`, `--limit`, `--concurrency`; stores per-ticket results + traces.
 - [ ] `eval/metrics.py` & `report.py`: all metrics in 4.11 → markdown table + JSON; confusion matrices; latency percentiles; cost per ticket and ×1,000; cache hit-rate.
 - [ ] Retrieval ablation script (BM25 / vector / hybrid / hybrid+rerank) → table.
 - [ ] Safety tests `tests/safety/`: **AT1** no refund executes without approval (try to bypass via API ordering, direct tool calls, injection text); **AT2** not-in-KB ⇒ escalated; **AT3** injection text ⇒ same tool plan/decision as a clean control ticket, plus a few injection variants; **AT4** forced tool failure/timeout ⇒ handled, logged, ticket not lost; **AT5** adversarial confusing ticket ⇒ halts ≤ step limit.
@@ -468,6 +485,8 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 - [ ] `docs/DECISIONS.md` cleaned up (trade-offs; alternatives rejected).
 - [ ] Clean-clone test: fresh directory, follow README only, everything works.
 - [ ] Record **3–5 min video** following `docs/DEMO_SCRIPT.md`: (1) problem + architecture 30s, (2) customer submits ticket, (3) agent triage + grounded draft + citations, (4) refund proposal → approval gate → approve → executed once, (5) not-in-KB escalation, (6) injection ticket, (7) tool failure/step limit/trace view, (8) eval table + cost/latency + idempotency demo.
+- [ ] **[R10]** One-command demo: an `init` compose service (or entrypoint) that runs migrate + seed + ingest-kb + load-tickets; the Dockerfile must also copy `scripts/`, `data/` and `eval/`. Pre-download the embedding model at build time or mount a cache volume. Test `docker build` and `docker compose up` on a machine that has never seen the repo (Python 3.14 + torch wheels are the risk).
+- [ ] **[R12]** Commit `eval/cache/llm_cache.jsonl` and add `make eval-replay`, so a reviewer without a Groq key reproduces the real-model numbers exactly, offline.
 - [ ] Optional: deploy demo (Render/Fly/VPS with compose) — only if time remains.
 - [ ] Reply to recruiter email with repo link, video link, demo link/Docker instructions, note, eval results — **before the 5-day deadline**.
 - **DoD:** every item in §2.1 ticked.
@@ -484,3 +503,28 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 
 ## Part 9 — Glossary of reason codes
 `NOT_IN_KB` · `LOW_CONFIDENCE` · `CONFLICTING_SOURCES` · `OWNERSHIP_MISMATCH` · `CUSTOMER_NOT_FOUND` · `AMBIGUOUS_CUSTOMER` · `POLICY_VIOLATION` (e.g. outside window) · `TOOL_FAILURE` · `STEP_LIMIT` · `INJECTION_SUSPECTED` · `NEEDS_HUMAN_JUDGEMENT`
+
+---
+
+## Part 10 — Review amendments (2026-11-11, repo commit `6aa1827`)
+
+Method: read every file in the repo; measured the ticket data with a script; applied migrations 002–004 plus the draft 006 on a throwaway Postgres 16 and tested each guard. **Not verified:** pgvector/HNSW (extension unavailable in the review sandbox), the full pytest suite, and the Docker build.
+
+| ID | Sev | Finding | Fix |
+|---|---|---|---|
+| R1 | High | The approval gate is code-only. On migrations 001–005 a plan change can go `pending_approval → executed` with nobody approving (no state guard on `plan_change_requests`), and a refund can reach `approved` with no `approved_by` and no `approvals` row. Both reproduced. | Migration 006: CHECKs, approvals-row requirement in both guards, plan-change guard, one final decision per action. 10/10 checks passed. |
+| R2 | High | Moving clock. `REF_DATE = datetime.now()`; base invoices keep their first-seed dates (`ON CONFLICT DO NOTHING`) while edge-case invoices are re-dated on every reseed (`DO UPDATE SET issued_at`). Monthly invoices sit at exactly 30/60/90/120 days, so none is inside the 30-day window. Ticket text bakes in dates. Any `now()`-based window check flips gold labels as days pass. | Fixed `SEED_REF_DATE` plus an `AS_OF` setting used by seed, linker, tools and policy. Phase 1b. |
+| R3 | High | The central scenario has no data. 0 of 80 linked tickets mention a refund; the happy-path control invoice `INV-0006-M4` has no ticket; `refund_over_remaining` asks for "3,402 dollars" on a ~$20 invoice. The hand-written edge tickets exist only inside the DB, not in any file. | Hand-write ≥8 refund tickets, export all hand-written tickets to `data/eval/handwritten.jsonl`. Phase 1b. |
+| R4 | Med | `tickets.content_hash UNIQUE` swallows legitimate repeats and collapses different senders. | Soft windowed dedupe in code; constraint dropped in 006. |
+| R5 | High | `tickets` has no sender (`from_email`). Customer identity can only come from `customer_id` or text in the body, which an attacker controls. The "unknown sender" and "email claimed in body" cases cannot be represented. | `from_email`/`from_name` in 006; `get_customer` uses the transport sender only. |
+| R6 | Med | Planned `get_invoice` regex `^INV-\d{4,8}$` matches 0 of 12 seeded ids (`INV-0001-M1`). Validation would reject every real invoice. | Regex changed in §4.3. |
+| R7 | Med | Linker is keyword bucketing. 17 of 80 tickets contain off-domain wording (hospital, medical, patient, Hadoop, "the client"); 46 of 80 are tagged Security or typed Incident in the source; two data-breach emails were bucketed as `invoice_question` and got an invoice sentence appended; 11 have empty subjects. | Quality gate plus manual review pass. Phase 1b. |
+| R8 | Med | `LLM_TIMEOUT_S=3.5` and `LLM_MAX_CALLS=2` were copied from the reference helpdesk project. Too tight for a 120B model on a free tier with structured output, and a ticket needs ≥3–4 calls. Expect spurious timeouts that look like "escalations". | Retune; define `LLM_MAX_CALLS` precisely. Phase 2. |
+| R9 | Med | `app/main.py` keeps one shared psycopg connection for all requests. Unsafe once the worker and concurrent requests exist; `psycopg_pool` is installed but unused. | Use a pool. Phase 2. |
+| R10 | Med | Docker reproducibility. The image copies only `app/` and `db/`; seed, ingest and eval run on the host via `uv`. `sentence-transformers` pulls torch (large image, model downloaded on first run). | `init` service, copy dirs, pre-download model, test a clean build. Phase 7. |
+| R11 | Low | FTS indexes only `text`; titles and headings are not searchable. A generated column using `array_to_string` is rejected as non-immutable (verified). | Prepend title and heading path to the chunk text at ingest. Phase 2. |
+| R12 | Opp | The `llm_cache` can make real-model eval replayable offline. | Commit cache fixture, `make eval-replay`. Phase 7. |
+| R13 | Low | Docs drift: PLAN/AGENTS listed `ollama`/`openai_compat`, strict mypy, and `make test` as the full suite. | Fixed in this revision. |
+| R14 | Low | The dev split has 10 tickets; tuning the abstention threshold τ on 10 is noise. | ≥20 with ≥8 not-in-KB. Phase 1b. |
+
+**Confirmed good (keep):** propose-only write model; DB triggers tested against real DDL; partial unique "one open refund per invoice"; `refunded ≤ paid` CHECK; append-only audit log; deterministic UUID5 seeding; hash-based migration runner; settings-driven thresholds; keeping `priority_hint`/`type_hint`/`queue_hint` out of agent inputs (use them only to help write gold labels, never as features).

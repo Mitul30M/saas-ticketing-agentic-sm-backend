@@ -20,6 +20,7 @@ from app.config import settings
 from db.seed.seed import REF_DATE, SEED_FAKER_SEED, det_uuid
 
 MANIFEST_PATH = Path("data/seed_manifest.json")
+HANDWRITTEN_PATH = Path("data/eval/handwritten.jsonl")
 
 # Tickets that reference invoices / customers that carry the seeded edge data.
 # Bodies are hand-written synthetic content; customers/invoices come from the
@@ -37,15 +38,22 @@ def _insert_ticket(conn: Any, slug: str, customer_id: str | None, subject: str, 
                    hours_ago: float) -> str:
     tid = str(det_uuid("ticket", slug))
     content_hash = hashlib.sha256(body.encode()).hexdigest()
+    sender = conn.execute(
+        "SELECT email, first_name, last_name FROM customers WHERE id = %s",
+        (customer_id,),
+    ).fetchone() if customer_id is not None else None
     conn.execute(
         """
         INSERT INTO tickets
-            (id, customer_id, channel, subject, body, content_hash, received_at, status)
-        VALUES (%s, %s, 'email', %s, %s, %s, %s, 'new')
+            (id, customer_id, channel, subject, body, content_hash, received_at,
+             status, from_email, from_name)
+        VALUES (%s, %s, 'email', %s, %s, %s, %s, 'new', %s, %s)
         ON CONFLICT (id) DO NOTHING
         """,
         (tid, customer_id, subject, body, content_hash,
-         REF_DATE - timedelta(hours=hours_ago)),
+         REF_DATE - timedelta(hours=hours_ago),
+         sender["email"] if sender else None,
+         f"{sender['first_name']} {sender['last_name']}" if sender else None),
     )
     return tid
 
@@ -228,12 +236,24 @@ def seed_edge_cases(
     tid_over = _insert_ticket(
         conn, "refund-over-remaining", c5["id"],
         "I want my money back for the last quarter",
-        "Please refund the full amount of invoice INV-0005-M3, all 3,402 dollars, to my card.",
+        "Please refund the full amount of invoice INV-0005-M3, all 20.02 dollars, to my card.",
         hours_ago=9,
     )
     add("refund_over_remaining",
         "Explicit full-amount ask on an old partially-refunded invoice.",
         {"ticket_id": tid_over, "customer_id": str(c5["id"]), "invoice_id": "INV-0005-M3"})
+
+    c6 = by_ref["C-0006"]
+    tid_ok = _insert_ticket(
+        conn, "refund-within-window-control", c6["id"],
+        "Please refund my recent Nimbus charge",
+        "Please refund invoice INV-0006-M4 for the full $20.03. "
+        "The charge is recent and belongs to my Nimbus account.",
+        hours_ago=11,
+    )
+    add("refund_within_window_ticket",
+        "Happy-path refund ask for the seeded in-window control invoice.",
+        {"ticket_id": tid_ok, "customer_id": str(c6["id"]), "invoice_id": "INV-0006-M4"})
 
     tid_failed = _insert_ticket(
         conn, "failed-payment-history", c8["id"],
@@ -355,6 +375,35 @@ def seed_edge_cases(
     }
     MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2) + "\n")
+    HANDWRITTEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ticket_ids = [
+        item["entities"]["ticket_id"]
+        for item in edge
+        if item["entities"].get("ticket_id")
+    ]
+    tickets = conn.execute(
+        """
+        SELECT id, customer_id, from_email, from_name, channel, subject, body,
+               received_at, status
+        FROM tickets
+        WHERE id = ANY(%s::uuid[])
+        ORDER BY received_at, id
+        """,
+        (ticket_ids,),
+    ).fetchall()
+    metadata = {
+        item["entities"]["ticket_id"]: item
+        for item in edge
+        if item["entities"].get("ticket_id")
+    }
+    with HANDWRITTEN_PATH.open("w") as handle:
+        for ticket in tickets:
+            row = dict(ticket)
+            row["id"] = str(row["id"])
+            row["customer_id"] = str(row["customer_id"]) if row["customer_id"] else None
+            row["received_at"] = row["received_at"].isoformat()
+            row["edge_case"] = metadata[row["id"]]
+            handle.write(json.dumps(row) + "\n")
     print(f"  edge cases: {len(edge)} -> {MANIFEST_PATH}")
     return manifest
 
@@ -367,20 +416,21 @@ def _customer_pools(conn: Any) -> dict[str, list[str]]:
         SELECT c.external_ref FROM customers c
         JOIN invoices i ON i.customer_id = c.id
         WHERE c.status = 'active' AND i.status = 'paid'
-          AND i.issued_at > now() - make_interval(days => %s - 5)
+          AND i.issued_at > %s - make_interval(days => %s - 5)
           AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = i.id AND p.amount_refunded_cents > 0)
         ORDER BY c.external_ref
         """,
-        (w,),
+        (settings.as_of, w),
     ).fetchall()
     stale = conn.execute(
         """
         SELECT c.external_ref FROM customers c
         JOIN invoices i ON i.customer_id = c.id
-        WHERE c.status = 'active' AND i.status = 'paid' AND i.issued_at <= now() - make_interval(days => %s)
+        WHERE c.status = 'active' AND i.status = 'paid'
+          AND i.issued_at <= %s - make_interval(days => %s)
         ORDER BY c.external_ref
         """,
-        (w,),
+        (settings.as_of, w),
     ).fetchall()
     unpaid = conn.execute(
         """

@@ -141,12 +141,12 @@ def fetch_invoice_candidates(conn: Any) -> dict[str, list[dict[str, Any]]]:
             FROM customers c
             JOIN invoices i ON i.customer_id = c.id
             WHERE c.status = 'active' AND i.status = 'paid'
-              AND i.issued_at > now() - make_interval(days => %s)
+              AND i.issued_at > %s - make_interval(days => %s)
               AND NOT EXISTS (SELECT 1 FROM payments p
                               WHERE p.invoice_id = i.id AND p.amount_refunded_cents > 0)
             ORDER BY c.external_ref, i.id
             """,
-            (w,),
+            (settings.as_of, w),
         ).fetchall()
     ]
     out["stale"] = [
@@ -158,10 +158,10 @@ def fetch_invoice_candidates(conn: Any) -> dict[str, list[dict[str, Any]]]:
             FROM customers c
             JOIN invoices i ON i.customer_id = c.id
             WHERE c.status = 'active' AND i.status = 'paid'
-              AND i.issued_at <= now() - make_interval(days => %s)
+              AND i.issued_at <= %s - make_interval(days => %s)
             ORDER BY c.external_ref, i.id
             """,
-            (w,),
+            (settings.as_of, w),
         ).fetchall()
     ]
     out["generic"] = [
@@ -289,8 +289,13 @@ def link_tickets() -> dict[str, Any]:
             seen_hashes.add(digest)
             linked.append({
                 "external_ref": ref,
+                "from_email": cand.get("email") if cand is not None else None,
+                "from_name": (
+                    f"{cand.get('first_name', '')} {cand.get('last_name', '')}".strip()
+                    if cand is not None else None
+                ),
                 "channel": "email",
-                "subject": subject,
+                "subject": subject.strip() or topic.replace("_", " ").title(),
                 "body": body,
                 "topic": topic,
                 "priority_hint": r["priority"],

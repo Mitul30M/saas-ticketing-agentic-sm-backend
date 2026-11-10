@@ -121,6 +121,12 @@ def test_refund_insert_must_start_pending(migrated_conn, core_ids) -> None:
 def test_refund_valid_transitions(migrated_conn, core_ids) -> None:
     _insert_refund(migrated_conn, core_ids, "itst-t1")
     migrated_conn.execute(
+        "INSERT INTO approvals "
+        "(ticket_id, action_type, action_ref, decision, decided_by) "
+        "SELECT ticket_id, 'refund', id, 'approved', 'ops-test' "
+        "FROM refund_requests WHERE idempotency_key='itst-t1' RETURNING id"
+    ).fetchone()["id"]
+    migrated_conn.execute(
         "UPDATE refund_requests SET status='approved', approved_by='ops-test', "
         "decided_at=now() WHERE idempotency_key='itst-t1'"
     )
@@ -133,6 +139,85 @@ def test_refund_valid_transitions(migrated_conn, core_ids) -> None:
     with pytest.raises(RaiseException, match="illegal"):
         migrated_conn.execute(
             "UPDATE refund_requests SET status='rejected' WHERE idempotency_key='itst-t1'"
+        )
+
+
+def test_refund_approval_requires_human_decision(migrated_conn, core_ids) -> None:
+    from psycopg.errors import CheckViolation, RaiseException
+
+    _insert_refund(migrated_conn, core_ids, "itst-no-approval")
+    with pytest.raises((CheckViolation, RaiseException), match="approval|decision"):
+        migrated_conn.execute(
+            "UPDATE refund_requests SET status='approved', approved_by='ops-test' "
+            "WHERE idempotency_key='itst-no-approval'"
+        )
+
+
+def test_refund_execution_requires_timestamp(migrated_conn, core_ids) -> None:
+    from psycopg.errors import CheckViolation
+
+    _insert_refund(migrated_conn, core_ids, "itst-no-executed-at")
+    migrated_conn.execute(
+        "INSERT INTO approvals "
+        "(ticket_id, action_type, action_ref, decision, decided_by) "
+        "SELECT ticket_id, 'refund', id, 'approved', 'ops-test' "
+        "FROM refund_requests WHERE idempotency_key='itst-no-executed-at'"
+    )
+    migrated_conn.execute(
+        "UPDATE refund_requests SET status='approved', approved_by='ops-test' "
+        "WHERE idempotency_key='itst-no-executed-at'"
+    )
+    with pytest.raises(CheckViolation, match="executed_needs_timestamp"):
+        migrated_conn.execute(
+            "UPDATE refund_requests SET status='executed' "
+            "WHERE idempotency_key='itst-no-executed-at'"
+        )
+
+
+def test_plan_change_cannot_jump_to_executed(migrated_conn, core_ids) -> None:
+    from psycopg.errors import RaiseException
+
+    migrated_conn.execute(
+        "INSERT INTO plan_change_requests "
+        "(ticket_id, customer_id, from_plan_id, to_plan_id, idempotency_key) "
+        "VALUES (%s, %s, 'ITST-PLAN', 'PLAN-STARTER', 'itst-plan-jump')",
+        (core_ids["ticket_id"], core_ids["cust_id"]),
+    )
+    with pytest.raises(RaiseException, match="illegal"):
+        migrated_conn.execute(
+            "UPDATE plan_change_requests SET status='executed' "
+            "WHERE idempotency_key='itst-plan-jump'"
+        )
+
+
+def test_final_approval_and_outbox_are_idempotent(migrated_conn, core_ids) -> None:
+    from psycopg.errors import IntegrityError
+
+    _insert_refund(migrated_conn, core_ids, "itst-final-once")
+    approval = migrated_conn.execute(
+        "INSERT INTO approvals "
+        "(ticket_id, action_type, action_ref, decision, decided_by) "
+        "SELECT ticket_id, 'refund', id, 'approved', 'ops-test' "
+        "FROM refund_requests WHERE idempotency_key='itst-final-once' RETURNING id"
+    ).fetchone()["id"]
+    with pytest.raises(IntegrityError):
+        migrated_conn.execute(
+            "INSERT INTO approvals "
+            "(ticket_id, action_type, action_ref, decision, decided_by) "
+            "SELECT ticket_id, 'refund', action_ref, 'approved', 'ops-test' "
+            "FROM approvals WHERE id=%s",
+            (approval,),
+        )
+    migrated_conn.execute(
+        "INSERT INTO outbox (ticket_id, approval_id, approved_by, body) "
+        "VALUES (%s, %s, 'ops-test', 'approved reply')",
+        (core_ids["ticket_id"], approval),
+    )
+    with pytest.raises(IntegrityError):
+        migrated_conn.execute(
+            "INSERT INTO outbox (ticket_id, approval_id, approved_by, body) "
+            "VALUES (%s, %s, 'ops-test', 'duplicate reply')",
+            (core_ids["ticket_id"], approval),
         )
 
 
@@ -189,6 +274,12 @@ def test_audit_log_is_append_only(migrated_conn) -> None:
 @pytest.fixture(scope="session", autouse=True)
 def _teardown(migrated_conn):
     yield
+    migrated_conn.execute("DELETE FROM outbox WHERE ticket_id IN "
+                          "(SELECT id FROM tickets WHERE subject LIKE 'ITST-%')")
+    migrated_conn.execute("DELETE FROM approvals WHERE ticket_id IN "
+                          "(SELECT id FROM tickets WHERE subject LIKE 'ITST-%')")
+    migrated_conn.execute("DELETE FROM plan_change_requests WHERE ticket_id IN "
+                          "(SELECT id FROM tickets WHERE subject LIKE 'ITST-%')")
     migrated_conn.execute("DELETE FROM refund_requests WHERE idempotency_key LIKE 'itst-%'")
     migrated_conn.execute("DELETE FROM tickets WHERE subject LIKE 'ITST-%'")
     migrated_conn.execute("DELETE FROM outbox WHERE ticket_id IN "

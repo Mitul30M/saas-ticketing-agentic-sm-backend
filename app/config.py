@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +23,8 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_timeout_s: float = 3.5
     llm_max_calls: int = 2
+
+    as_of: datetime = datetime.fromisoformat("2026-11-10T12:00:00+00:00")
 
     # Embeddings: local open model, no paid API needed.
     embed_model: str = "BAAI/bge-small-en-v1.5"

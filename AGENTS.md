@@ -10,22 +10,23 @@ Read `PLAN.md` first. It defines scope, design, and the phase checklist (Part 7)
 - Backend: Python 3.14, FastAPI, Pydantic v2, LangGraph + `langgraph-checkpoint-postgres`, `psycopg` 3 (parameterised SQL), tenacity.
 - DB: PostgreSQL (official `pgvector/pgvector` image) — business data, KB chunks, tickets, checkpoints, traces, idempotency, LLM cache.
 - Frontend: Next.js (App Router) + TypeScript + Tailwind.
-- LLM: via `LLMClient` abstraction only (`mock` | `ollama` | `openai_compat`). Never call a vendor SDK directly from graph/tool code.
+- LLM: via `LLMClient` abstraction only (`stub` | `groq`, as in `app/config.py`). Never call a vendor SDK directly from graph/tool code.
 - Package/dev: `uv` for Python, `pnpm` (or npm) for web, `docker compose` for everything.
 
 ## 2. Commands (keep these working; update here if they change)
 ```
-make up            # docker compose up -d (db, api, web)
+make up            # docker compose up -d --build (db, api; no web, frontend is a separate repo)
 make down
 make migrate       # apply db/migrations/*.sql in order
 make seed          # deterministic seed incl. edge cases
 make ingest-kb     # chunk + embed KB (idempotent)
 make load-tickets  # load data/tickets_all.jsonl via API/service
-make test          # unit + integration + safety tests
+make test          # unit tests only (fast, no DB)
+make test-all      # unit + integration + safety (needs the db container)
 make eval          # run evaluation, write eval/results/
 make lint          # ruff + mypy (backend), eslint + tsc (web)
 ```
-Before declaring any task done: run `make lint` and the relevant tests. Show the command output summary in your final message for the task.
+Before declaring any task done: run `make lint` and the relevant tests. Anything touching the DB, tools, approvals or the graph needs `make test-all`, not just `make test`. Show the command output summary in your final message for the task.
 
 ## 3. Non-negotiable safety invariants
 1. **No write without approval.** `propose_refund` / `propose_plan_change` only INSERT rows with `status='pending_approval'`. Only `services/approvals.py` + `services/executor.py` may move a row to `approved`/`executed`, and only after a recorded human decision. Never add a code path where the agent/graph calls the executor directly.
@@ -38,6 +39,9 @@ Before declaring any task done: run `make lint` and the relevant tests. Show the
 8. **Idempotency everywhere it matters** (PLAN §4.6): `Idempotency-Key` on mutating endpoints, unique constraints for refunds, `FOR UPDATE` in executor, LLM/embedding caches.
 9. **Audit + trace everything.** Every node, tool call, LLM call, approval decision writes a trace/audit row. `audit_log` is append-only.
 10. Synthetic data only. Never add real personal data or secrets to the repo.
+11. **Identity comes from the transport sender.** Customer lookup uses `ticket.from_email` only. An email, customer ID or invoice ID *claimed in the body* is a claim to verify (ownership check), never a lookup key and never evidence of identity.
+12. **No wall clock in business rules.** Refund windows and ages use the injected `AS_OF` (settings), never `now()`/`datetime.now()`, so eval labels stay stable. `now()` is fine for audit timestamps.
+13. **The approval gate is also in the database.** Migration 006 requires an `approvals` row and `approved_by` before a refund/plan change can become `approved`, and a `executed_at` before `executed`. Never drop or loosen these to make a test pass; write the test fixture to create the human decision.
 
 If a requested change would weaken any of the above, **stop and ask** instead of proceeding.
 
@@ -54,7 +58,8 @@ If a requested change would weaken any of the above, **stop and ask** instead of
 
 ## 5. Code conventions
 **Python**
-- Type hints everywhere; `ruff` + `mypy --strict` on `app/`. Pydantic models for all I/O boundaries.
+- Type hints everywhere; `ruff` + `mypy` on `app/` (currently non-strict in `pyproject.toml`; tighten to `strict = true` before Phase 3). Pydantic models for all I/O boundaries.
+- DB access goes through a `psycopg_pool.ConnectionPool` with request-scoped connections, not a shared module-level connection.
 - Layering: `api/` (HTTP only) → `services/` (business logic) → `tools/`, `retrieval/`, `llm/`, `db.py`. Graph nodes call services/tools, not the DB directly, except through `db.py` helpers.
 - Config via `pydantic-settings` from env; no hard-coded thresholds — put τ, step limit, timeouts, refund window in config.
 - Errors: tools return `{ok: False, error: {code, message, retryable}}`; services raise domain exceptions mapped to HTTP codes in `api/`.
@@ -74,8 +79,10 @@ If a requested change would weaken any of the above, **stop and ask** instead of
 
 ## 6. Evaluation discipline
 - Keep `data/dev/` (tuning) and `data/eval/` (final report) **disjoint**. Tune prompts and the grounding threshold on dev only; tag `eval-freeze` before the final run.
-- Never read gold labels inside the agent or the mock LLM. Mock mode is for plumbing/CI; headline numbers come from a real model and must state the model name.
+- Never read gold labels inside the agent or the stub LLM. Stub mode is for plumbing/CI; headline numbers come from a real model and must state the model name.
 - Report honestly, including failures. Every reported metric must be reproducible via `make eval`.
+- Gold labels that depend on dates (e.g. `within_window`) are computed against `AS_OF`, not today.
+- `priority_hint` / `type_hint` / `queue_hint` in the ticket files come from the source dataset and may be noisy. They may help a human write gold labels; they must never be passed to the agent or used as features.
 
 ## 7. Things to avoid
 - Auto-approving anything (even "for testing") outside test fixtures that explicitly simulate a human decision through the approval API.
