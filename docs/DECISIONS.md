@@ -44,3 +44,15 @@ Format: 3–5 lines per decision. Newest at the bottom.
   `003_support.sql`; the integration suite exercises them against the running Postgres
   (skip-if-down) instead of mocking.
 - Alternatives: enforce only in service code (rejected — agent inserts could bypass).
+
+### 2026-11-10 · Reference repo: QuickDrop-Rider-Payment-HelpDesk-Agent (READ-ONLY)
+- `/Volumes/Mitul/Projects/QuickDrop-Rider-Payment-HelpDesk-Agent` is the owner's prior project and the
+  baseline for patterns: DB claims/idempotency, `trace()` single-helper observability, ops approval queue
+  with CAS + re-verify-from-source, bounded LLM client (Groq/ChatGroq), pytest integration style.
+- Policy: consult freely for structuring/wiring agent+LLM work, but **never write to it**.
+
+### 2026-11-10 · Dataset reality check (owner-confirmed)
+- `Tobi-Bueck/customer-support-tickets` is a tickets table only — no customers/payments/orders/KB.
+- Consequence: seed the business DB first, then link tickets to it; inject invoice refs into billing
+  bodies; "order status" tool maps to subscription+invoice status; payments table carries the exact
+  fields refund tools must check. Requirements captures live in PLAN §4.2.1 "Reality check".

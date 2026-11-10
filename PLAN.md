@@ -130,6 +130,16 @@ These are the parts an interviewer will probe. Write/understand them yourself ev
 - Known issues: unfilled placeholders like `[name]`; mixed languages → **English only**, strip/replace placeholders.
 - Do **not** treat the dataset's `answer` column as ground truth. Use it for **tone/style reference only**.
 
+**Reality check (owner-confirmed) — the dataset is a tickets table ONLY; everything else must be generated**
+1. **No customer/payment/order records, and no KB behind it.** Our agent's tools (customer lookup, order/billing status, refund) need those — so we **generate the business DB first** (customers, plans, subscriptions, invoices, payments per 4.2.2), then **tie tickets to it**: the seeded rows must carry exactly the fields the tools return.
+2. **Refund checks need payments data**: amount, method, status, date (`paid_at`), and amount already refunded. These live in `payments` and let a tool enforce "refund ≤ paid − already refunded", the refund window, and duplicate-refund detection.
+3. **"Order status"** in a retail brief has no SaaS analog — the tool surface maps to **subscription + invoice/billing status** (`get_subscription`, `get_invoice` return status, period, refunded-to-date). Nothing extra to add.
+4. **`refund_requests`** is the agent's write target: status `pending_approval/approved/rejected/executed/failed`, amount, reason, evidence JSON, `proposed_by`, `approved_by`, timestamps — only the approval step **outside the model's control** moves it forward (DB trigger enforces it).
+5. **Tickets + audit log**: tickets link to a customer; `audit_log` records every approval decision (append-only).
+6. **Customer fields**: plan/tier (`plan_id`), `language`, `created_at`, `status` — present in `customers`.
+7. **Linking order of operations** (matches the linking pipeline below): seed DB → filter EN tickets → cluster by queue/type/tags into **6–8 coherent SaaS topics** → assign each ticket a customer → for billing/refund tickets inject `invoice_id` + amount into the body (template/LLM rewrite) so the tools can actually answer → clean `[name]`-style placeholders.
+- The hardship boundary: a linked ticket references rows that **must exist and be scannable by tools** — the seed manifest therefore also maps which seeded customers/invoices the linked tickets point at.
+
 **Linking pipeline (`scripts/link_tickets.py`)**
 1. Seed the DB first (4.2.2).
 2. Load CSV → filter `language == 'en'` → cluster by `queue`/`type`/`tags` → keep **6–8 topics** that fit one SaaS company (billing/refunds, plan change, login/SSO, data export, outage/bug, security, feature request, account deletion…).
@@ -371,22 +381,24 @@ Agent runs execute in a background worker (FastAPI `BackgroundTasks` or a simple
 
 > **Rules for working through this list:** do one phase at a time; tick boxes only when the **Definition of Done (DoD)** is met and verified by running a command; commit after each task group with a conventional message; update `docs/DECISIONS.md` whenever you make a non-obvious choice. Never skip a safety test to "save time". See `AGENTS.md`.
 
-### Phase 0 — Bootstrap & repo hygiene (≈1–2 h)
-- [ ] Init git repo; add `.gitignore` (`.env`, `data/raw/`, `node_modules`, `.venv`, `__pycache__`, `.next`).
-- [ ] Create directory layout from 4.12 (backend-only; empty packages with `__init__.py`).
-- [ ] Backend: `uv init` / `pyproject.toml` with deps: `fastapi uvicorn[standard] pydantic pydantic-settings psycopg[binary,pool] langgraph langgraph-checkpoint-postgres langchain-core tenacity httpx pyyaml pytest pytest-asyncio faker sentence-transformers` (pin versions after first successful install; keep a lockfile). **Python 3.14** (`requires-python = ">=3.14"`).
-- [ ] `docker-compose.yml`: services `db` (`pgvector/pgvector:pg16`, volume, healthcheck), `api`; **no `web` service** (frontend is a separate repo); optional `ollama` behind a profile.
-- [ ] `.env.example` with `DATABASE_URL`, `LLM_PROVIDER`, `LLM_MODEL`, `EMBED_MODEL`, `AGENT_TOKEN`, `STEP_LIMIT`, `TOOL_TIMEOUT_S`, `REFUND_WINDOW_DAYS`.
-- [ ] `Makefile` targets: `up`, `down`, `migrate`, `seed`, `ingest-kb`, `load-tickets`, `test`, `eval`, `lint`.
-- **DoD:** `docker compose up db` healthy; `make migrate` applies an empty migration; `GET /healthz` returns 200.
+### Phase 0 — Bootstrap & repo hygiene (≈1–2 h) — ✅ complete 2026-11-10
+- [x] Init git repo; add `.gitignore` (`.env`, `data/raw/`, `node_modules`, `.venv`, `__pycache__`, `.next`).
+- [x] Create directory layout from 4.12 (backend-only; empty packages with `__init__.py`).
+- [x] Backend: `uv init` / `pyproject.toml` with deps: `fastapi uvicorn[standard] pydantic pydantic-settings psycopg[binary,pool] langgraph langgraph-checkpoint-postgres langchain-core tenacity httpx pyyaml pytest pytest-asyncio faker sentence-transformers` (pin versions after first successful install; keep a lockfile). **Python 3.14** (`requires-python = ">=3.14"`).
+- [x] `docker-compose.yml`: services `db` (`pgvector/pgvector:pg16`, volume, healthcheck), `api`; **no `web` service** (frontend is a separate repo); optional `ollama` omitted (Groq via ChatGroq, see DECISIONS).
+- [x] `.env.example` with `DATABASE_URL`, `LLM_PROVIDER`, `LLM_MODEL`, `EMBED_MODEL`, `AGENT_TOKEN`, `STEP_LIMIT`, `TOOL_TIMEOUT_S`, `REFUND_WINDOW_DAYS`.
+- [x] `Makefile` targets: `up`, `down`, `migrate`, `seed`, `ingest-kb`, `load-tickets`, `test`, `eval`, `lint`.
+- **DoD ✅ verified:** `docker compose up db` healthy; `make migrate` applies migrations (idempotent); `GET /healthz` returns 200; 3 unit + 8 integration tests green; ruff + mypy clean.
 
-### Phase 1 — Database, seed data, KB (Day 1)
-- [ ] `db/migrations/001_extensions.sql` (`vector`, `pgcrypto`/`uuid-ossp`).
-- [ ] `002_core.sql`: customers, plans, subscriptions, invoices, payments (constraints per 4.2.2).
-- [ ] `003_support.sql`: tickets, refund_requests, plan_change_requests, approvals, audit_log.
-- [ ] `004_platform.sql`: trace_events, idempotency_keys, llm_cache, jobs (if used).
-- [ ] `005_kb.sql`: kb_articles, kb_chunks + GIN + HNSW indexes.
-- [ ] DB triggers/constraints: refund state-machine guard; `amount_refunded_cents <= amount_cents`; audit_log append-only (revoke UPDATE/DELETE or trigger).
+> **Carry-forward note:** Phase 1 DDL (migrations 001–005 incl. safety triggers) was built + integration-tested as part of the same push; the Phase 1 checkboxes below are ticked accordingly. Seed/KB/ticket-pipeline work in Phase 1 remains open.
+
+### Phase 1 — Database, seed data, KB (Day 1) — migrations ✅ applied 2026-11-10
+- [x] `db/migrations/001_extensions.sql` (`vector`, `pgcrypto`/`uuid-ossp`).
+- [x] `002_core.sql`: customers, plans, subscriptions, invoices, payments (constraints per 4.2.2).
+- [x] `003_support.sql`: tickets, refund_requests, plan_change_requests, approvals, audit_log (+ `outbox`).
+- [x] `004_platform.sql`: trace_events, idempotency_keys, llm_cache, jobs (if used).
+- [x] `005_kb.sql`: kb_articles, kb_chunks + GIN + HNSW indexes.
+- [x] DB triggers/constraints: refund state-machine guard; `amount_refunded_cents <= amount_cents`; audit_log append-only (revoke UPDATE/DELETE or trigger). *Verified by `tests/integration/test_db_schema.py` against the running DB (8/8 green).*
 - [ ] `db/seed/seed.py`: deterministic Faker seed (fixed seed value) → ~100 customers, 4 plans, subs, invoices, payments.
 - [ ] `db/seed/edge_cases.py`: all edge cases listed in 4.2.2; write `data/seed_manifest.json` mapping edge-case name → entity IDs.
 - [ ] Write **25–40 KB articles** (`data/kb/KB-001…`), ~70% coverage design, 2–4 near-duplicates; record in `data/kb/COVERAGE.md` which ticket topics are covered/uncovered (this is ground truth for eval).

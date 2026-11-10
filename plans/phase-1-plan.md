@@ -4,12 +4,12 @@
 
 ## II. Checklist
 
-- [ ] `db/migrations/001_extensions.sql` (`vector`, `pgcrypto`/`uuid-ossp`).
-- [ ] `002_core.sql`: customers, plans, subscriptions, invoices, payments (constraints per 4.2.2).
-- [ ] `003_support.sql`: tickets, refund_requests, plan_change_requests, approvals, audit_log.
-- [ ] `004_platform.sql`: trace_events, idempotency_keys, llm_cache, jobs (if used).
-- [ ] `005_kb.sql`: kb_articles, kb_chunks + GIN + HNSW indexes.
-- [ ] DB triggers/constraints: refund state-machine guard; `amount_refunded_cents <= amount_cents`; audit_log append-only (revoke UPDATE/DELETE or trigger).
+- [x] `db/migrations/001_extensions.sql` (`vector`, `pgcrypto`/`uuid-ossp`). ✅ applied
+- [x] `002_core.sql`: customers, plans, subscriptions, invoices, payments (constraints per 4.2.2). ✅ applied
+- [x] `003_support.sql`: tickets, refund_requests, plan_change_requests, approvals, audit_log (+ `outbox`). ✅ applied
+- [x] `004_platform.sql`: trace_events, idempotency_keys, llm_cache, jobs (if used). ✅ applied
+- [x] `005_kb.sql`: kb_articles, kb_chunks + GIN + HNSW indexes. ✅ applied
+- [x] DB triggers/constraints: refund state-machine guard; `amount_refunded_cents <= amount_cents`; audit_log append-only (revoke UPDATE/DELETE or trigger). ✅ enforced by triggers; exercised in `tests/integration/test_db_schema.py` (8/8 green)
 - [ ] `db/seed/seed.py`: deterministic Faker seed (fixed seed value) → ~100 customers, 4 plans, subs, invoices, payments.
 - [ ] `db/seed/edge_cases.py`: all edge cases listed in 4.2.2; write `data/seed_manifest.json` mapping edge-case name → entity IDs.
 - [ ] Write **25–40 KB articles** (`data/kb/KB-001…`), ~70% coverage design, 2–4 near-duplicates; record in `data/kb/COVERAGE.md` which ticket topics are covered/uncovered (this is ground truth for eval).
@@ -35,5 +35,11 @@
 - **Dataset:** Tobi-Bueck/customer-support-tickets, **CC BY-NC 4.0** (attribution needed); do **not** use its `answer` column as ground truth (tone/style only); read the dataset card, record provenance in `docs/DECISIONS.md` + README wording ("derived, rewritten into fictional product; no real customer data").
 - AI-generated KB drafts OK **if reviewed and disclosed** in `docs/AI_USAGE.md`.
 - Health/safety invariants to respect here: constraints are part of the safety design — never drop them to make a test pass.
+- **Dataset reality check (owner-confirmed):** Tobi-Bueck is tickets-only — no customers, payments, orders, or KB. Implications for the seed/link work in this phase:
+  - Seed **business DB first**, then link tickets to it. `payments` must expose amount, method, status, paid_at, refunded-to-date (schema already has all of these) so refund tools can enforce amount ≤ paid − refunded, the window, and duplicate detection.
+  - "Order status" maps to subscription + invoice/billing status tools (`get_subscription`, `get_invoice`) — nothing extra to model.
+  - Linking: filter EN → 6–8 topics → assign customer per ticket → inject `invoice_id` + amount into billing/refund ticket bodies → tools can answer them. `answer` column is style reference only, never ground truth.
+  - The seed manifest must map which seeded customers/invoices each linked ticket points at.
+- **`/Volumes/Mitul/Projects/QuickDrop-Rider-Payment-HelpDesk-Agent` is READ-ONLY owner reference** (patterns for hints/LLM wiring/idempotency/traces/tests); never modify it.
 
 ## Log & achievements (append)
