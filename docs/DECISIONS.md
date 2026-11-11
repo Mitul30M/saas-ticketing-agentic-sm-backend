@@ -125,3 +125,26 @@ Format: 3–5 lines per decision. Newest at the bottom.
   a single re-ask with a strict instruction; the stub path never repairs
   (deterministic output that fails self-validation is a plumbing bug and must
   raise `LLMError`).
+
+### 2026-11-11 · Hybrid retrieval: RRF k=60, rerank off by default
+- `hybrid_search` runs FTS (`websearch_to_tsquery` — injection-safe by design,
+  query text only ever a bind parameter) and pgvector cosine in parallel and
+  fuses with Reciprocal Rank Fusion k=60 (PLAN 4.4); both channels' ranks are
+  kept on the result so grounding can see WHY a chunk surfaced.
+- Cross-encoder rerank ships behind `RETRIEVAL_RERANK_MODEL` (empty = off);
+  headline eval numbers must state whether it was on.
+
+### 2026-11-11 · Triage: prompt proposes, code disposes (queue)
+- `triage_ticket` emits `{category, priority, sentiment, reasons}` via one
+  structured call; the queue is mapped in code through `CATEGORY_QUEUE`
+  (app/domain/enums.py) — the model never picks the queue (PLAN 4.5).
+- Prompt `triage_v1.txt` is static and versioned; ticket text enters ONLY the
+  user message inside `<<<SUBJECT>>> / <<<BODY>>>` delimiters, and the system
+  prompt states the injection rule. A guard in `_system_prompt` refuses a
+  system prompt that contains the delimiters.
+
+### 2026-11-11 · plan_change evidence lives in the trace
+- `plan_change_requests` has no evidence column; the validated proposal's
+  kb_ids and claimed key are persisted in the tool trace row (registry writes
+  it every call), keeping the audit trail complete without weakening the
+  proposal schema.

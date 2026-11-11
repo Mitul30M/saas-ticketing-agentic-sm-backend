@@ -166,7 +166,16 @@ def build_registry(pool: Any) -> ToolRegistry:
                  input_model=handlers.LookupCustomerInput, handler=wrap(handlers.lookup_customer)),
         ToolSpec(name="get_invoice",
                  input_model=handlers.InvoiceInput, handler=wrap(handlers.get_invoice)),
+        ToolSpec(name="get_subscription",
+                 input_model=handlers.CustomerResourceInput, handler=wrap(handlers.get_subscription)),
+        ToolSpec(name="kb_search",
+                 input_model=handlers.KBSearchInput, handler=wrap(handlers.kb_search)),
         ToolSpec(name="propose_refund",
                  input_model=handlers.RefundProposalInput, handler=wrap(handlers.propose_refund)),
+        ToolSpec(name="propose_plan_change",
+                 input_model=handlers.PlanChangeProposalInput,
+                 handler=wrap(handlers.propose_plan_change)),
+        ToolSpec(name="escalate_to_human",
+                 input_model=handlers.EscalationInput, handler=wrap(handlers.escalate_to_human)),
     ]
     return ToolRegistry(specs, _pool_tracer(pool))

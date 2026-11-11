@@ -423,14 +423,14 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - [x] Add `from_email` to linked ticket records and seeded edge tickets; verified on all 60 load records, with body-claimed emails retained as untrusted text.
 
 ### Phase 2 — Tools, LLM abstraction, retrieval, triage (Day 1–2)
-- [ ] `llm/base.py`: `LLMClient.generate(messages, schema|None, tools|None, **params)` returning text/structured + usage; providers: `stub`, `groq` (matches `app/config.py`); shared retry/repair for JSON; timeout.
-- [ ] `llm/cache.py`: sha256 cache wrapper (layer 3 idempotency); logs `cache_hit`.
-- [ ] `tools/schemas.py`: Pydantic models for every tool input/output + `ToolError` codes.
-- [ ] Implement tools per 4.3 with ownership/business-rule validation; each wrapped by `registry.call(name, args, ctx)` → validation → timeout → typed result → trace row.
-- [ ] `retrieval/hybrid.py`: FTS + vector queries, RRF fusion (k=60); `retrieval/rerank.py`: optional cross-encoder (feature flag).
-- [ ] Unit tests: every tool — valid input, each invalid input class, each business-rule failure (unknown customer, ownership mismatch, over-refund, outside window, duplicate open request), timeout simulation.
-- [ ] `agent/nodes/triage.py`: structured output `{category, priority, sentiment, reasons{category,priority,sentiment}}`; enums fixed in one module; deterministic `category → queue` map.
-- [ ] Triage prompt files in `agent/prompts/` (versioned, short, ticket text delimited as untrusted).
+- [x] `llm/base.py`: `LLMClient.generate(messages, schema|None, tools|None, **params)` returning text/structured + usage; providers: `stub`, `groq` (matches `app/config.py`); shared retry/repair for JSON; timeout. ✅ repair-once (strip fences → one re-ask, real providers only) + DB cache wired via optional `pool`
+- [x] `llm/cache.py`: sha256 cache wrapper (layer 3 idempotency); logs `cache_hit`. ✅ `cache_hit=True` reuses stored tokens; 6 cache integration tests
+- [x] `tools/schemas.py`: Pydantic models for every tool input/output + `ToolError` codes. ✅ `kb_ids` `KB-` validator on both proposal inputs
+- [x] Implement tools per 4.3 with ownership/business-rule validation; each wrapped by `registry.call(name, args, ctx)` → validation → timeout → typed result → trace row. ✅ all 7 tools wired; registry writes exactly one trace row per call (timeout-safe)
+- [x] `retrieval/hybrid.py`: FTS + vector queries, RRF fusion (k=60); `retrieval/rerank.py`: optional cross-encoder (feature flag). ✅ flag off by default (`RETRIEVAL_RERANK_MODEL` empty); websearch_to_tsquery for untrusted queries
+- [x] Unit tests: every tool — valid input, each invalid input class, each business-rule failure (unknown customer, ownership mismatch, over-refund, outside window, duplicate open request), timeout simulation. ✅ 32 registry-contract + 12 ownership + 13 extended-tools + 8 retrieval integration tests; suite 106 green
+- [x] `agent/nodes/triage.py`: structured output `{category, priority, sentiment, reasons{category,priority,sentiment}}`; enums fixed in one module; deterministic `category → queue` map. ✅ DoD verified: 10 dev tickets, all valid structured output
+- [x] Triage prompt files in `agent/prompts/` (versioned, short, ticket text delimited as untrusted). ✅ `triage_v1.txt`; system prompt static, ticket text only in delimited user content
 - [x] Shared Phase 2 contracts: provider-independent `LLMClient`, deterministic category/queue
   taxonomy, and initial Pydantic tool boundary. ✅ unit-tested; provider retry/repair and tool
   registry remain open.

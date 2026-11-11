@@ -20,10 +20,15 @@ import psycopg
 from psycopg.types.json import Json
 
 from app.config import settings
+from app.retrieval.hybrid import hybrid_search
 from app.tools.registry import ToolFailure
 from app.tools.schemas import (
+    CustomerResourceInput,
+    EscalationInput,
     InvoiceInput,
+    KBSearchInput,
     LookupCustomerInput,
+    PlanChangeProposalInput,
     RefundProposalInput,
     ToolErrorCode,
 )
@@ -220,4 +225,110 @@ def propose_refund(pool: Any, args: RefundProposalInput) -> dict[str, Any]:
         "invoice_id": args.invoice_id,
         "amount_cents": args.amount_cents,
         "idempotency_key": key,
+    }
+
+
+def get_subscription(pool: Any, args: CustomerResourceInput) -> dict[str, Any]:
+    """Return the ticket sender's OWN subscriptions (never another customer's)."""
+    sender = _require_sender(pool, str(args.ticket_id), str(args.customer_id))
+    with pool.connection() as conn:
+        rows = conn.execute(
+            "SELECT id, plan_id, status, billing_cycle, current_period_start, "
+            "current_period_end FROM subscriptions "
+            "WHERE customer_id = %s ORDER BY created_at",
+            (sender,),
+        ).fetchall()
+    return {
+        "subscriptions": [
+            {
+                "subscription_id": str(row["id"]),
+                "plan_id": row["plan_id"],
+                "status": row["status"],
+                "billing_cycle": row["billing_cycle"],
+                "current_period_start": row["current_period_start"].isoformat()
+                if row["current_period_start"]
+                else None,
+                "current_period_end": row["current_period_end"].isoformat()
+                if row["current_period_end"]
+                else None,
+            }
+            for row in rows
+        ]
+    }
+
+
+def kb_search(pool: Any, args: KBSearchInput) -> dict[str, Any]:
+    """Hybrid FTS + vector retrieval over the knowledge base."""
+    with pool.connection() as conn:
+        chunks = hybrid_search(conn, args.query, args.limit)
+    return {"results": [chunk.to_dict() for chunk in chunks]}
+
+
+def _server_plan_key(ticket_id: str, customer_id: str, to_plan_id: str) -> str:
+    digest = hashlib.sha256(
+        f"plan|{ticket_id}|{customer_id}|{to_plan_id}".encode()
+    ).hexdigest()[:32]
+    return f"srv-{digest}"
+
+
+def propose_plan_change(pool: Any, args: PlanChangeProposalInput) -> dict[str, Any]:
+    """Insert a PENDING plan-change request. Never approves, never executes.
+
+    plan_change_requests has no evidence column: the evidence (kb_ids + the
+    claimed key) is persisted in the tool trace row written by the registry.
+    """
+    sender = _require_sender(pool, str(args.ticket_id), str(args.customer_id))
+    with pool.connection() as conn:
+        target = conn.execute(
+            "SELECT id FROM plans WHERE id = %s", (args.to_plan_id,)
+        ).fetchone()
+        if target is None:
+            raise ToolFailure(ToolErrorCode.NOT_FOUND, "target plan does not exist")
+        current = conn.execute(
+            "SELECT plan_id FROM subscriptions "
+            "WHERE customer_id = %s AND status = 'active' "
+            "ORDER BY created_at DESC LIMIT 1",
+            (sender,),
+        ).fetchone()
+        from_plan = str(current["plan_id"]) if current else None
+        if from_plan == args.to_plan_id:
+            raise ToolFailure(ToolErrorCode.BUSINESS_RULE, "customer is already on the target plan")
+        key = _server_plan_key(str(args.ticket_id), sender, args.to_plan_id)
+        try:
+            row = conn.execute(
+                "INSERT INTO plan_change_requests "
+                "(ticket_id, customer_id, from_plan_id, to_plan_id, effective, idempotency_key) "
+                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, status",
+                (str(args.ticket_id), sender, from_plan, args.to_plan_id, args.effective, key),
+            ).fetchone()
+        except psycopg.errors.UniqueViolation:
+            raise ToolFailure(
+                ToolErrorCode.DUPLICATE,
+                "an open plan-change request already exists for this customer",
+            ) from None
+    return {
+        "plan_change_request_id": str(row["id"]),
+        "status": row["status"],
+        "from_plan_id": from_plan,
+        "to_plan_id": args.to_plan_id,
+        "effective": args.effective,
+        "idempotency_key": key,
+    }
+
+
+def escalate_to_human(pool: Any, args: EscalationInput) -> dict[str, Any]:
+    """Flag the ticket for a human. The agent never resolves by itself."""
+    with pool.connection() as conn:
+        row = conn.execute(
+            "UPDATE tickets SET escalated = TRUE, agent_outcome = 'escalated' "
+            "WHERE id = %s RETURNING id, escalated",
+            (str(args.ticket_id),),
+        ).fetchone()
+    if row is None:
+        raise ToolFailure(ToolErrorCode.NOT_FOUND, "ticket does not exist")
+    return {
+        "ticket_id": str(row["id"]),
+        "escalated": bool(row["escalated"]),
+        "agent_outcome": "escalated",
+        "reason_code": args.reason_code,
     }
