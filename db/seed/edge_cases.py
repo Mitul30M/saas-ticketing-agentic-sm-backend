@@ -46,9 +46,17 @@ def _insert_ticket(conn: Any, slug: str, customer_id: str | None, subject: str, 
         """
         INSERT INTO tickets
             (id, customer_id, channel, subject, body, content_hash, received_at,
-             status, from_email, from_name)
-        VALUES (%s, %s, 'email', %s, %s, %s, %s, 'new', %s, %s)
-        ON CONFLICT (id) DO NOTHING
+             status, source, from_email, from_name, reviewed)
+        VALUES (%s, %s, 'email', %s, %s, %s, %s, 'new', 'seed', %s, %s, TRUE)
+        ON CONFLICT (id) DO UPDATE SET
+            customer_id = EXCLUDED.customer_id,
+            subject = EXCLUDED.subject,
+            body = EXCLUDED.body,
+            content_hash = EXCLUDED.content_hash,
+            received_at = EXCLUDED.received_at,
+            from_email = EXCLUDED.from_email,
+            from_name = EXCLUDED.from_name,
+            reviewed = TRUE
         """,
         (tid, customer_id, subject, body, content_hash,
          REF_DATE - timedelta(hours=hours_ago),

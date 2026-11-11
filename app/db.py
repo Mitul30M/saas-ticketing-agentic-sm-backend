@@ -1,6 +1,6 @@
 """Database connection pool, file-based migrations and trace logging.
 
-Migration mechanism copied from the reference repo (QuickDrop helpdesk agent):
+Migration mechanism:
 a `schema_migrations` table records applied filenames; every SQL file in
 db/migrations/*.sql runs in one transaction, `IF NOT EXISTS` makes DDL idempotent.
 All SQL is parameterised; ticket/customer text is ALWAYS passed as parameters.

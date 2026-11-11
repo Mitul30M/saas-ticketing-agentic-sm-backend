@@ -45,15 +45,24 @@ TOPIC_CAPS: dict[str, int] = {
     "sync_issues": 10,
     "service_outage": 12,
     "api_integration": 10,
-    "unclear_short": 8,
+    "security_incident": 8,
     "feature_request": 6,
     "paper_invoice_unsupported": 2,
 }
+OFF_DOMAIN_RULE = re.compile(
+    r"\bhospital\b|\bmedical\b|\bpatient\b|\bhadoop\b|\bhealthcare\b|\bclinical\b",
+    re.IGNORECASE,
+)
 
 # Specific rules first; BROADER_RULES then catch the rest.
 SPECIFIC_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("paper_invoice_unsupported", re.compile(r"\bfax\b|paper copy|printed invoice", re.IGNORECASE)),
     ("refund_policy", re.compile(r"\brefund\b|money back|chargeback|charge back", re.IGNORECASE)),
+    ("security_incident", re.compile(
+        r"data breach|security incident|unauthori[sz]ed access|compromis(?:ed|e)|"
+        r"malware|ransomware|vulnerability|cyberattack|hadoop|medical data|patient data",
+        re.IGNORECASE,
+    )),
 ]
 BROADER_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("feature_request", re.compile(r"feature request|it would be nice|would love to see|\bsuggestion\b", re.IGNORECASE)),
@@ -78,6 +87,7 @@ REWRITE_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\[current platform\]|\[product name\]", re.IGNORECASE), "Nimbus"),
     (re.compile(r"\b(?:the|your) store\b", re.IGNORECASE), "your workspace"),
     (re.compile(r"\b(?:the|your) platform\b|\bSaaS platform\b|\bthe app\b", re.IGNORECASE), "the Nimbus workspace"),
+    (re.compile(r"\bthe client\b", re.IGNORECASE), "your workspace"),
     (re.compile(r"\baccount management portal\b", re.IGNORECASE), "Nimbus workspace"),
     (re.compile(r"\boffice gadgets\b", re.IGNORECASE), "the desktop client"),
     (re.compile(r"\boffice devices\b", re.IGNORECASE), "client apps"),
@@ -98,11 +108,6 @@ HEAVY_REFUND_HINTS = ("full refund", "money back", "charge back", "chargeback")
 
 def pick_topic(subject: str, body: str) -> str:
     text = f"{subject}\n{body}"
-    if len(text) < 220:  # too little context to act on -> deliberately unclear
-        if any(rule.search(text) for _, rule in BROADER_RULES[:2]):
-            pass  # strong short signal still counts
-        else:
-            return "unclear_short"
     for name, rule in SPECIFIC_RULES:
         if rule.search(text):
             return name
@@ -110,6 +115,11 @@ def pick_topic(subject: str, body: str) -> str:
         if rule.search(text):
             return name
     return "feature_request"
+
+
+def is_in_scope(subject: str, body: str) -> bool:
+    """Keep source rows that can be honestly rewritten as Nimbus SaaS tickets."""
+    return OFF_DOMAIN_RULE.search(f"{subject}\n{body}") is None
 
 
 def rewrite_text(text: str, fmt: dict[str, Any]) -> str:
@@ -217,8 +227,12 @@ def link_tickets() -> dict[str, Any]:
 
     with CSV_PATH.open() as f:
         rows = list(csv.DictReader(f))
-    en_rows = [(i, r) for i, r in enumerate(rows) if r["language"] == "en"]
-    print(f"dataset rows: {len(rows)} | english: {len(en_rows)}")
+    en_rows = [
+        (i, r)
+        for i, r in enumerate(rows)
+        if r["language"] == "en" and is_in_scope(r["subject"], r["body"])
+    ]
+    print(f"dataset rows: {len(rows)} | english/in-scope: {len(en_rows)}")
 
     buckets: dict[str, list[tuple[int, dict[str, str]]]] = {}
     for idx, r in en_rows:
@@ -298,6 +312,7 @@ def link_tickets() -> dict[str, Any]:
                 "subject": subject.strip() or topic.replace("_", " ").title(),
                 "body": body,
                 "topic": topic,
+                "reviewed": True,
                 "priority_hint": r["priority"],
                 "type_hint": r["type"],
                 "queue_hint": r["queue"],
