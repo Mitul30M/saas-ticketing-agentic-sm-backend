@@ -96,3 +96,32 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - Loader (`scripts/load_tickets.py`) skips duplicates by
   `(from_email, content_hash)` because migration 006 replaced the global
   unique hash with soft, windowed intake dedupe.
+
+### 2026-11-11 · Registry writes the trace row, never the handler
+- The tool registry executes handlers on a small ThreadPoolExecutor with a
+  per-call timeout; after a timeout the handler thread is abandoned and may
+  still finish — which is why the registry (not the handler) writes the single
+  trace row. A tracing handler could add a second row after a timeout.
+- Handlers receive a VALIDATED Pydantic model, so they cannot read unvalidated
+  keys; validation errors report field names only, never rejected values
+  (attacker text must not flow back to the model).
+
+### 2026-11-11 · Ownership semantics: sender-resolved, anti-probe, fail-closed
+- Identity is resolved from `tickets.from_email` in the DB; `from_email` in
+  tool arguments is optional and ignored (invariant 11), so the model cannot
+  impersonate by claiming an email.
+- `get_invoice` returns the same `OWNERSHIP_MISMATCH` for a missing and a
+  foreign invoice so callers cannot probe which invoice ids exist. Ambiguous
+  duplicate-email senders fail closed with `NOT_FOUND` (escalate).
+- `propose_refund` stores a SERVER-derived idempotency key
+  (`sha256(refund|ticket|invoice|amount)`); the agent-supplied key is kept as
+  evidence metadata only, so replays dedupe and altered amounts never collide.
+
+### 2026-11-11 · LLM cache + repair-once in `generate()`
+- `LLMClient(pool=...)` enables the `llm_cache` layer (identical requests
+  answered with `cache_hit=True` and stored token counts); without a pool no
+  caching, keeping pure unit usage deterministic.
+- Real-provider JSON failures get ONE bounded repair: strip code fences, then
+  a single re-ask with a strict instruction; the stub path never repairs
+  (deterministic output that fails self-validation is a plumbing bug and must
+  raise `LLMError`).

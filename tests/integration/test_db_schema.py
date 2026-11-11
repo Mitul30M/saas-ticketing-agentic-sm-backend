@@ -8,68 +8,9 @@ These run the real DDL and exercise two DB-level safety mechanisms:
 
 from __future__ import annotations
 
-import os
-import uuid
-
-import psycopg
 import pytest
-from psycopg.rows import dict_row
 
-from app import db
-
-DSN = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://nimbus:nimbus@localhost:5433/nimbus"
-)
-
-
-def _connect() -> psycopg.Connection:
-    return psycopg.connect(DSN, row_factory=dict_row, autocommit=True)
-
-
-@pytest.fixture(scope="session")
-def migrated_conn():
-    try:
-        conn = _connect()
-        conn.execute("SELECT 1").fetchone()
-    except psycopg.OperationalError:
-        pytest.skip("compose Postgres not running (start docker, or set TEST_DATABASE_URL)")
-    db.run_migrations(conn)
-    return conn
-
-
-@pytest.fixture()
-def core_ids(migrated_conn):
-    """Minimal plan -> customer -> subscription -> invoice -> ticket chain."""
-    conn = migrated_conn
-    plan = "ITST-PLAN"
-    cust_ref = f"ITST-{uuid.uuid4().hex[:8]}"
-    invoice = f"INV-ITST{uuid.uuid4().hex[:8]}"
-    conn.execute(
-        "INSERT INTO plans (id, code, name, monthly_price_cents, annual_price_cents) "
-        "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING",
-        (plan, plan, "Test Plan", 1000, 10000),
-    )
-    cust = conn.execute(
-        "INSERT INTO customers (external_ref, first_name, last_name, email, plan_id) "
-        "VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (cust_ref, "Test", "Customer", f"{cust_ref}@example.test", plan),
-    ).fetchone()["id"]
-    sub = conn.execute(
-        "INSERT INTO subscriptions (customer_id, plan_id, status, billing_cycle) "
-        "VALUES (%s,%s,'active','monthly') RETURNING id",
-        (cust, plan),
-    ).fetchone()["id"]
-    conn.execute(
-        "INSERT INTO invoices (id, customer_id, subscription_id, amount_cents, status, issued_at) "
-        "VALUES (%s,%s,%s,%s,'paid',now())",
-        (invoice, cust, sub, 5000),
-    )
-    ticket = conn.execute(
-        "INSERT INTO tickets (subject, body, content_hash) "
-        "VALUES (%s,%s,%s) RETURNING id",
-        (f"ITST-integration {invoice}", f"test body for {invoice}", f"itst-{invoice}"),
-    ).fetchone()["id"]
-    return {"cust_id": cust, "invoice": invoice, "ticket_id": ticket}
+# Fixtures (_connect, migrated_conn, core_ids) live in tests/integration/conftest.py.
 
 
 # ---- schema shape -----------------------------------------------------------
@@ -267,26 +208,3 @@ def test_audit_log_is_append_only(migrated_conn) -> None:
         )
     with pytest.raises(RaiseException, match="append-only"):
         migrated_conn.execute("DELETE FROM audit_log WHERE id=%s", (row["id"],))
-
-
-# ---- cleanup ---------------------------------------------------------------
-
-@pytest.fixture(scope="session", autouse=True)
-def _teardown(migrated_conn):
-    yield
-    migrated_conn.execute("DELETE FROM outbox WHERE ticket_id IN "
-                          "(SELECT id FROM tickets WHERE subject LIKE 'ITST-%')")
-    migrated_conn.execute("DELETE FROM approvals WHERE ticket_id IN "
-                          "(SELECT id FROM tickets WHERE subject LIKE 'ITST-%')")
-    migrated_conn.execute("DELETE FROM plan_change_requests WHERE ticket_id IN "
-                          "(SELECT id FROM tickets WHERE subject LIKE 'ITST-%')")
-    migrated_conn.execute("DELETE FROM refund_requests WHERE idempotency_key LIKE 'itst-%'")
-    migrated_conn.execute("DELETE FROM tickets WHERE subject LIKE 'ITST-%'")
-    migrated_conn.execute("DELETE FROM outbox WHERE ticket_id IN "
-                          "(SELECT id FROM tickets WHERE subject LIKE 'ITST-%')")
-    migrated_conn.execute("DELETE FROM invoices WHERE id LIKE 'INV-ITST%'")
-    migrated_conn.execute("DELETE FROM subscriptions WHERE customer_id IN "
-                          "(SELECT id FROM customers WHERE external_ref LIKE 'ITST-%')")
-    migrated_conn.execute("DELETE FROM customers WHERE external_ref LIKE 'ITST-%'")
-    migrated_conn.execute("DELETE FROM plans WHERE code LIKE 'ITST-%'")
-    migrated_conn.close()

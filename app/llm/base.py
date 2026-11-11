@@ -16,6 +16,7 @@ from pydantic import BaseModel, SecretStr, ValidationError
 from pydantic.fields import PydanticUndefined
 
 from app.config import settings
+from app.llm.cache import cache_key, load_cached, store_cached
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 Message = dict[str, str]
@@ -52,10 +53,15 @@ def parse_structured[SchemaT: BaseModel](text: str, schema: type[SchemaT]) -> Sc
 
 
 class LLMClient:
-    """Small client facade with stub and Groq providers."""
+    """Small client facade with stub and Groq providers.
 
-    def __init__(self, provider: str | None = None) -> None:
+    Pass a psycopg_pool to enable the DB-backed LLM cache (identical requests
+    are answered from cache, PLAN 4.6 layer 3). Without a pool, no caching.
+    """
+
+    def __init__(self, provider: str | None = None, pool: Any | None = None) -> None:
         self.provider = provider or settings.llm_provider
+        self._pool = pool
         if self.provider not in {"stub", "groq"}:
             raise ValueError(f"unsupported LLM provider: {self.provider}")
 
@@ -67,13 +73,79 @@ class LLMClient:
         **params: Any,
     ) -> LLMResponse:
         started = perf_counter()
-        if self.provider == "stub":
-            text = self._stub_response(messages, schema)
-        else:
-            text = self._groq_response(messages, tools, params)
-        structured = parse_structured(text, schema) if schema else None
+        key = cache_key(self.provider, settings.llm_model or self.provider, messages, params)
+        if self._pool is not None:
+            with self._pool.connection() as conn:
+                cached = load_cached(conn, key)
+            if cached is not None:
+                payload = cached["response"]
+                text = payload["text"] if isinstance(payload, dict) else str(payload)
+                structured = parse_structured(text, schema) if schema else None
+                latency_ms = int((perf_counter() - started) * 1000)
+                return LLMResponse(
+                    text,
+                    structured,
+                    Usage(
+                        input_tokens=cached["tokens_in"] or 0,
+                        output_tokens=cached["tokens_out"] or 0,
+                        latency_ms=latency_ms,
+                    ),
+                    cache_hit=True,
+                )
+
+        text, tokens_in, tokens_out = self._raw_generate(messages, schema, tools, params)
+        repaired_text, repaired_structured = self._parse_with_repair(messages, schema, tools, text)
+        text, structured = repaired_text, repaired_structured
+        if self._pool is not None:
+            with self._pool.connection() as conn:
+                store_cached(conn, key, {"text": text}, tokens_in, tokens_out)
         latency_ms = int((perf_counter() - started) * 1000)
-        return LLMResponse(text, structured, Usage(latency_ms=latency_ms))
+        return LLMResponse(text, structured, Usage(tokens_in, tokens_out, latency_ms))
+
+    def _raw_generate(
+        self,
+        messages: list[Message],
+        schema: type[SchemaT] | None,
+        tools: list[dict[str, Any]] | None,
+        params: dict[str, Any],
+    ) -> tuple[str, int, int]:
+        """Provider call. Returns (text, tokens_in, tokens_out)."""
+        if self.provider == "stub":
+            return self._stub_response(messages, schema), 0, 0
+        return self._groq_response(messages, tools, params)
+
+    def _parse_with_repair(
+        self,
+        messages: list[Message],
+        schema: type[SchemaT] | None,
+        tools: list[dict[str, Any]] | None,
+        text: str,
+    ) -> tuple[str, SchemaT | None]:
+        """Parse schema output with ONE bounded repair: strip code fences, then
+        a single re-ask for real providers. Stub is deterministic, so a failed
+        stub self-validation must fail loudly, not be papered over."""
+        if schema is None:
+            return text, None
+        if self.provider == "stub":
+            return text, parse_structured(text, schema)  # stub text was self-validated
+        try:
+            return text, parse_structured(text, schema)
+        except LLMError:
+            pass
+        repaired = _strip_fences(text)
+        try:
+            return repaired, parse_structured(repaired, schema)
+        except LLMError:
+            pass
+        retry_messages = messages + [{
+            "role": "user",
+            "content": "Your previous reply was not valid JSON matching the requested "
+                       "schema. Reply again with ONLY the JSON object, no prose, "
+                       "no markdown fences.",
+        }]
+        retry_text, _, _ = self._raw_generate(retry_messages, schema, tools, {})
+        final_text = _strip_fences(retry_text)
+        return final_text, parse_structured(final_text, schema)  # 2nd failure -> LLMError
 
     @staticmethod
     def _stub_response(messages: list[Message], schema: type[SchemaT] | None) -> str:
@@ -103,7 +175,7 @@ class LLMClient:
     @staticmethod
     def _groq_response(
         messages: list[Message], tools: list[dict[str, Any]] | None, params: dict[str, Any]
-    ) -> str:
+    ) -> tuple[str, int, int]:
         try:
             from langchain_groq import ChatGroq
         except ImportError as exc:
@@ -122,7 +194,21 @@ class LLMClient:
         content = response.content
         if not isinstance(content, str):
             raise LLMError("Groq returned a non-text response")
-        return content
+        usage = getattr(response, "usage_metadata", None) or {}
+        return content, int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
+
+
+def _strip_fences(text: str) -> str:
+    """Repair step 1: models love wrapping JSON in ``` fences."""
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip().endswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
 
 
 def _stub_value(annotation: Any, default: Any) -> Any:

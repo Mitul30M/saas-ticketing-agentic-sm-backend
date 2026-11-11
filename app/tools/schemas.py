@@ -33,8 +33,19 @@ class ToolResult(BaseModel):
 
 
 class TicketContext(BaseModel):
+    """from_email in arguments is NEVER trusted (invariant 11): identity is
+    resolved server-side from tickets.from_email. Kept optional and unused."""
+
     ticket_id: UUID
-    from_email: str = Field(min_length=3, max_length=320)
+    from_email: str | None = Field(default=None, min_length=3, max_length=320)
+
+
+class LookupCustomerInput(BaseModel):
+    """Identity is resolved from tickets.from_email in the DB (invariant 11);
+    a from_email CLAIMED in the arguments is ignored."""
+
+    ticket_id: UUID
+    from_email: str | None = Field(default=None, min_length=3, max_length=320)
 
 
 class KBSearchInput(BaseModel):
@@ -83,6 +94,13 @@ class PlanChangeProposalInput(CustomerResourceInput):
     reason: str = Field(min_length=3, max_length=1000)
     kb_ids: list[str] = Field(min_length=1, max_length=10)
     idempotency_key: str = Field(min_length=8, max_length=200)
+
+    @field_validator("kb_ids")
+    @classmethod
+    def validate_kb_ids(cls, values: list[str]) -> list[str]:
+        if any(not value.startswith("KB-") for value in values):
+            raise ValueError("kb_ids must contain KB article IDs")
+        return values
 
 
 class EscalationInput(BaseModel):
