@@ -12,7 +12,8 @@ from app.tools.schemas import RefundProposalInput
 
 
 class StubOutput(BaseModel):
-    status: str = "ok"
+    status: str
+    reasons: dict[str, str]
 
 
 def test_category_queue_mapping_is_deterministic() -> None:
@@ -51,3 +52,10 @@ def test_cache_key_is_order_stable() -> None:
     assert cache_key("stub", "model", messages, {"temperature": 0}) == cache_key(
         "stub", "model", messages, {"temperature": 0}
     )
+
+
+def test_cache_key_changes_when_request_changes() -> None:
+    messages = [{"role": "user", "content": "hello"}]
+    base = cache_key("stub", "model", messages, {"temperature": 0})
+    assert base != cache_key("stub", "model", messages, {"temperature": 1})
+    assert base != cache_key("stub", "model", [{"role": "user", "content": "different"}], {"temperature": 0})

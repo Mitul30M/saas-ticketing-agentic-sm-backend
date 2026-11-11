@@ -31,5 +31,7 @@ def test_migrations_dir_has_expected_files() -> None:
         "003_support.sql",
         "004_platform.sql",
         "005_kb.sql",
+        "006_safety_and_dashboard.sql",
+        "007_ticket_review.sql",
         "008_kb_fts_title.sql",
     } <= names

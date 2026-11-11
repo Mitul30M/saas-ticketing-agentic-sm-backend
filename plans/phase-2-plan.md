@@ -36,3 +36,5 @@
   `groq` providers, structured-output validation, deterministic category/queue taxonomy,
   initial validated tool contracts, and SHA-256 cache-key helpers. Full provider retry/
   repair, database cache wrapper, registry, and tool implementations remain open.
+- 2026-11-11: Fixed the linker payment join, normalized provider failures to `LLMError`,
+  made required-field stub output schema-valid, and added cache-key regression coverage.

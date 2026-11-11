@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from enum import StrEnum
 from time import perf_counter
-from typing import Any, TypeVar
+from types import UnionType
+from typing import Any, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel, SecretStr, ValidationError
+from pydantic.fields import PydanticUndefined
 
 from app.config import settings
 
@@ -76,16 +79,10 @@ class LLMClient:
     def _stub_response(messages: list[Message], schema: type[SchemaT] | None) -> str:
         if schema is None:
             return "Stub response."
-        values: dict[str, Any] = {}
-        for name, field in schema.model_fields.items():
-            if field.default is not None:
-                values[name] = field.default
-            elif name == "reasons":
-                values[name] = {}
-            elif name.endswith("s"):
-                values[name] = []
-            else:
-                values[name] = "stub"
+        values = {
+            name: _stub_value(field.annotation, field.default)
+            for name, field in schema.model_fields.items()
+        }
         return json.dumps(values)
 
     @staticmethod
@@ -105,9 +102,32 @@ class LLMClient:
                 max_retries=settings.llm_max_calls - 1,
             )
             response = model.invoke(messages)
-        except (OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
+        except Exception as exc:
             raise LLMError("Groq request failed") from exc
         content = response.content
         if not isinstance(content, str):
             raise LLMError("Groq returned a non-text response")
         return content
+
+
+def _stub_value(annotation: Any, default: Any) -> Any:
+    if default is not PydanticUndefined:
+        return default
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin in (UnionType,):
+        non_null = [item for item in args if item is not type(None)]
+        return _stub_value(non_null[0], PydanticUndefined) if non_null else None
+    if origin is list:
+        return []
+    if origin is dict:
+        return {}
+    if isinstance(annotation, type) and issubclass(annotation, StrEnum):
+        return next(iter(annotation))
+    if annotation is str:
+        return "stub"
+    if annotation is int or annotation is float:
+        return 0
+    if annotation is bool:
+        return False
+    return None

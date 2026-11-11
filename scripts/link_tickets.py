@@ -154,11 +154,12 @@ def fetch_invoice_candidates(conn: Any) -> dict[str, list[dict[str, Any]]]:
                    i.id AS invoice_id, i.amount_cents, i.issued_at
             FROM customers c
             JOIN invoices i ON i.customer_id = c.id
+            JOIN payments p ON p.invoice_id = i.id
             WHERE c.status = 'active' AND i.status = 'paid'
               AND p.status = 'succeeded'
               AND p.paid_at > %s - make_interval(days => %s)
-              AND NOT EXISTS (SELECT 1 FROM payments p
-                              WHERE p.invoice_id = i.id AND p.amount_refunded_cents > 0)
+              AND NOT EXISTS (SELECT 1 FROM payments p2
+                              WHERE p2.invoice_id = i.id AND p2.amount_refunded_cents > 0)
             ORDER BY c.external_ref, i.id
             """,
             (settings.as_of, w),
@@ -169,7 +170,7 @@ def fetch_invoice_candidates(conn: Any) -> dict[str, list[dict[str, Any]]]:
         for r in conn.execute(
             """
             SELECT c.external_ref, c.first_name, c.last_name, c.email,
-                   i.id AS invoice_id, i.amount_cents,                    i.issued_at, p.paid_at
+                   i.id AS invoice_id, i.amount_cents, i.issued_at, p.paid_at
             FROM customers c
             JOIN invoices i ON i.customer_id = c.id
             JOIN payments p ON p.invoice_id = i.id

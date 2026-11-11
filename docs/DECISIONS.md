@@ -76,3 +76,9 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - Taxonomy-to-queue routing is deterministic code rather than an LLM instruction.
 - Full cache persistence, retry/repair, and registry execution stay as separate steps so
   each safety boundary can be tested independently.
+
+### 2026-11-11 · Normalize vendor failures at the LLM boundary
+- The Groq adapter catches provider exceptions at the vendor boundary and converts them
+  into `LLMError`, so graph code never depends on vendor-specific exception classes.
+- The deterministic stub fills required schema fields by annotation rather than relying
+  on optional defaults, keeping CI behavior representative of real structured calls.
