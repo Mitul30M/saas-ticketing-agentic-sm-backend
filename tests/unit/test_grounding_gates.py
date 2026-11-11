@@ -7,6 +7,7 @@ import pytest
 
 from app.agent.nodes.common import escalation_update, step_guard
 from app.agent.nodes.draft import CitationError, validate_citations
+from app.agent.nodes.grounding import resolve_recency_conflict
 from app.config import settings
 
 RETRIEVED = {"KB-006", "KB-007", "KB-009"}
@@ -46,3 +47,24 @@ def test_step_guard_triggers_at_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert guard is not None
     assert guard["escalation"]["reason_code"] == "STEP_LIMIT"
     assert guard["outcome"] == "escalated"
+
+
+def test_recency_conflict_keeps_unique_newest_source() -> None:
+    chunks = [
+        {"kb_id": "KB-006", "updated": "2026-01-01"},
+        {"kb_id": "KB-007", "updated": "2025-01-01"},
+        {"kb_id": "KB-009", "updated": "2026-02-01"},
+    ]
+    retained, resolved = resolve_recency_conflict(chunks, ["KB-006", "KB-007"])
+    assert resolved is True
+    assert [chunk["kb_id"] for chunk in retained] == ["KB-006", "KB-009"]
+
+
+def test_recency_conflict_escalates_on_tied_dates() -> None:
+    chunks = [
+        {"kb_id": "KB-006", "updated": "2026-01-01"},
+        {"kb_id": "KB-007", "updated": "2026-01-01"},
+    ]
+    retained, resolved = resolve_recency_conflict(chunks, ["KB-006", "KB-007"])
+    assert resolved is False
+    assert retained == chunks

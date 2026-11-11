@@ -92,6 +92,7 @@ def safe_node(name: str, pool: Any, fn: Callable[[AgentState], dict[str, Any]]) 
                     None, None, status="error", error=type(exc).__name__,
                 )
             return {
+                "failure": True,
                 "outcome": "escalated",
                 "escalation": {
                     "reason_code": "INTERNAL_ERROR",

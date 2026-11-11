@@ -67,34 +67,12 @@ def make_approval_gate_node():
 
 
 def make_execute_node(pool: Any):
+    """Compatibility node: execution belongs to services, never the graph."""
+
     def execute_approved(state: AgentState) -> dict[str, Any]:
         approval = state.get("approval") or {}
-        if not approval.get("approved"):
-            return {}
-        ticket_id = str(state["ticket_id"])
-        trace_id = str(state["trace_id"])
-        with pool.connection() as conn:
-            # Replay-safe: one recorded send per ticket; a checkpoint replay
-            # must not duplicate the outbox row.
-            existing = conn.execute(
-                "SELECT id FROM outbox WHERE ticket_id = %s LIMIT 1", (ticket_id,)
-            ).fetchone()
-            if existing is None:
-                row = conn.execute(
-                    "INSERT INTO outbox (ticket_id, approved_by, body) "
-                    "VALUES (%s, %s, %s) RETURNING id",
-                    (ticket_id, str(approval.get("decided_by") or "unknown"),
-                     str(approval.get("final_text") or "")),
-                ).fetchone()
-                outbox_id = str(row["id"]) if row else ""
-            else:
-                outbox_id = str(existing["id"])
-        from app.agent.nodes.common import trace_node
-
-        trace_node(
-            pool, ticket_id, trace_id, "send_reply", "action",
-            {"outbox_id": outbox_id}, {"sent": True, "replayed": existing is not None},
-        )
-        return {"outcome": "sent", "step_count": next_step(state)}
+        if approval.get("approved"):
+            return {"outcome": "action_proposed", "step_count": next_step(state)}
+        return {}
 
     return execute_approved

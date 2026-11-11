@@ -17,6 +17,8 @@ class AgentState(TypedDict, total=False):
     body: str
 
     triage: dict[str, Any]  # TriageResult.to_dict()
+    plan: str
+    action_proposed: bool
     retrieved: list[dict[str, Any]]  # RetrievedChunk.to_dict() list
     grounding: dict[str, Any]  # {supported, reason_code, score, claims}
 
@@ -34,3 +36,4 @@ class AgentState(TypedDict, total=False):
 
     step_count: int
     errors: list[str]
+    failure: bool

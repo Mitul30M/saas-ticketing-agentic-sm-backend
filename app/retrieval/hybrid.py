@@ -20,6 +20,7 @@ class RetrievedChunk:
     kb_id: str
     chunk_idx: int
     title: str
+    updated: str
     heading_path: list[str]
     text: str
     rrf_score: float
@@ -69,9 +70,10 @@ def fts_search(conn: Any, query: str, limit: int) -> list[dict[str, Any]]:
     if not fts:
         return []
     rows = conn.execute(
-        "SELECT id, kb_id, chunk_idx, title, heading_path, text, "
+        "SELECT c.id, c.kb_id, c.chunk_idx, c.title, a.updated, c.heading_path, c.text, "
+        "a.updated AS article_updated, "
         "ts_rank(tsv, websearch_to_tsquery('english', %s)) AS score "
-        "FROM kb_chunks "
+        "FROM kb_chunks c JOIN kb_articles a ON a.id = c.kb_id "
         "WHERE tsv @@ websearch_to_tsquery('english', %s) "
         "ORDER BY score DESC LIMIT %s",
         (fts, fts, limit),
@@ -82,9 +84,10 @@ def fts_search(conn: Any, query: str, limit: int) -> list[dict[str, Any]]:
 def vector_search(conn: Any, query: str, limit: int) -> list[dict[str, Any]]:
     embedding = vector_literal(embed_query(query))
     rows = conn.execute(
-        "SELECT id, kb_id, chunk_idx, title, heading_path, text, "
+        "SELECT c.id, c.kb_id, c.chunk_idx, c.title, a.updated, c.heading_path, c.text, "
+        "a.updated AS article_updated, "
         "1 - (embedding <=> %s::vector) AS score "
-        "FROM kb_chunks "
+        "FROM kb_chunks c JOIN kb_articles a ON a.id = c.kb_id "
         "ORDER BY embedding <=> %s::vector LIMIT %s",
         (embedding, embedding, limit),
     ).fetchall()
@@ -119,6 +122,7 @@ def _fuse(
                 kb_id=str(row["kb_id"]),
                 chunk_idx=int(row["chunk_idx"]),
                 title=str(row["title"]),
+                updated=str(row.get("article_updated") or row.get("updated")),
                 heading_path=list(row["heading_path"] or []),
                 text=str(row["text"]),
                 rrf_score=float(entry["rrf"]),

@@ -83,6 +83,14 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - The deterministic stub fills required schema fields by annotation rather than relying
   on optional defaults, keeping CI behavior representative of real structured calls.
 
+### 2026-11-11 · Graph approvals are proposal-only
+- The LangGraph approval interrupt collects the human decision and resumes to an
+  `action_proposed` state; it does not write `outbox` or perform customer-visible work.
+- Approval recording and execution are separate service calls that write an audit row,
+  lock and re-verify the decision, and make the outbox insert replay-safe.
+- This keeps the agent limited to triage, retrieval, grounding, and drafting while
+  the human-facing approval/API layer owns side effects.
+
 ### 2026-11-11 · Stub structured output: `stub_example()` convention
 - Schemas handed to `LLMClient.generate(schema=...)` should define a
   `stub_example()` classmethod returning a realistic dict; the stub uses it

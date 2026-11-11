@@ -37,6 +37,7 @@ class SupportCheckOutput(BaseModel):
     conflicting: bool = False
     reason: str = Field(min_length=1, max_length=500)
     claims: list[ClaimSupport] = Field(default_factory=list)
+    conflicting_kb_ids: list[str] = Field(default_factory=list)
 
     @classmethod
     def stub_example(cls) -> dict[str, Any]:
@@ -45,7 +46,29 @@ class SupportCheckOutput(BaseModel):
             "conflicting": False,
             "reason": "The retrieved chunks cover the customer's question.",
             "claims": [],
+            "conflicting_kb_ids": [],
         }
+
+
+def resolve_recency_conflict(
+    chunks: list[dict[str, Any]], conflicting_ids: list[str]
+) -> tuple[list[dict[str, Any]], bool]:
+    candidates = [chunk for chunk in chunks if str(chunk["kb_id"]) in set(conflicting_ids)]
+    if len({str(chunk["kb_id"]) for chunk in candidates}) < 2:
+        return chunks, False
+    dates = {
+        str(chunk["kb_id"]): str(chunk.get("updated") or "")
+        for chunk in candidates
+    }
+    newest = max(dates.values())
+    newest_ids = [kb_id for kb_id, updated in dates.items() if updated == newest]
+    if len(newest_ids) != 1:
+        return chunks, False
+    retained = [
+        chunk for chunk in chunks
+        if str(chunk["kb_id"]) not in conflicting_ids or str(chunk["kb_id"]) == newest_ids[0]
+    ]
+    return retained, True
 
 
 @lru_cache(maxsize=4)
@@ -127,14 +150,28 @@ def make_grounding_node(pool: Any, client: LLMClient):
             cache_hit=response.cache_hit,
         )
 
-        # Gate 3: conflicting sources.
+        # Gate 3: conflicts are resolved only when the newest source is unique.
         if verdict.conflicting:
-            return {
-                **escalation_update(
-                    "CONFLICTING_SOURCES", "retrieved chunks contradict each other"
-                ),
-                "step_count": next_step(state),
-            }
+            resolved_chunks, resolved = resolve_recency_conflict(
+                chunks, verdict.conflicting_kb_ids
+            )
+            if resolved:
+                chunks = resolved_chunks
+                supported_claims = [
+                    claim for claim in supported_claims
+                    if any(str(chunk["kb_id"]) == str(claim.kb_id) for chunk in chunks)
+                ]
+                supported = verdict.supported and not (
+                    len(verdict.claims) > len(supported_claims)
+                )
+            if not resolved:
+                return {
+                    **escalation_update(
+                        "CONFLICTING_SOURCES",
+                        "retrieved sources conflict without one unambiguous newest policy",
+                    ),
+                    "step_count": next_step(state),
+                }
         if not supported:
             return {
                 **escalation_update(

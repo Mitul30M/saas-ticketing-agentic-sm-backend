@@ -4,13 +4,13 @@
 
 ## II. Checklist
 
-- [ ] `agent/state.py` typed state; `agent/graph.py` per 4.4; `PostgresSaver` checkpointer; `thread_id=ticket_id`.
-- [ ] Nodes: `intake_validate`, `injection_screen`, `triage`, `plan`, `tool_executor`, `grounding_check`, `draft_reply`, `propose_actions`, `approval_gate` (`interrupt`), `execute_approved`, `escalate`, `failure_handler`, `finalize`.
-- [ ] Step counter + `recursion_limit`; `STEP_LIMIT` configurable; exceeding → failure path with reason `STEP_LIMIT`.
-- [ ] Retry policy (tenacity) for retryable tool/LLM errors; each attempt traced.
-- [ ] Grounding rule per 4.5 (threshold config, support check, citation validator, recency tiebreak).
-- [ ] CLI: `python -m app.agent.run --ticket <id>` prints trace summary and final state.
-- [ ] Generate and commit the graph diagram (`graph.get_graph().draw_mermaid()` → `docs/architecture.md`).
+- [x] `agent/state.py` typed state; `agent/graph.py` per 4.4; `PostgresSaver` checkpointer; `thread_id=ticket_id`.
+- [x] Nodes: `intake_validate`, `injection_screen`, `triage`, explicit no-side-effect `plan`/`tool_executor`/`propose_actions`, `grounding_check`, `draft_reply`, `approval_gate` (`interrupt`), `execute_approved`, `escalate`, `failure_handler`, `finalize`.
+- [x] Step counter + `recursion_limit`; `STEP_LIMIT` configurable; exceeding → failure path with reason `STEP_LIMIT`.
+- [x] Retry policy (tenacity) for retryable tool/LLM errors; each attempt traced.
+- [x] Grounding rule per 4.5 (threshold config, support check, citation validator, deterministic recency tiebreak).
+- [x] CLI: `python -m app.agent.run --ticket <id>` prints trace summary and final state.
+- [x] Generate and commit the graph diagram (`graph.get_graph().draw_mermaid()` → `docs/architecture.md`).
 
 ## Definition of Done (verify with commands)
 
@@ -22,6 +22,10 @@
 - (e) confusing → stops at step limit and escalates
 
 Plus: process restart mid-pause → run resumes from checkpoint.
+
+Verified with `make test-all`: 123 passed. Refund/plan-change execution remains
+outside this graph and belongs to Phase 4 approval services; this phase pauses
+customer-visible reply proposals only.
 
 ## Notes & key facts
 
@@ -45,3 +49,11 @@ Plus: process restart mid-pause → run resumes from checkpoint.
   cleanup, generated `docs/architecture.md`, and verified `make test-all` with
   121 passing tests. Phase remains open until the human executor/service boundary
   and all five DoD scenarios are reviewed against the final approval API.
+- 2026-11-11: Added `services/approvals.py` and `services/executor.py`. The graph
+  now records an approved reply as `action_proposed` only; it never writes the
+  outbox. The service layer records one final approval, audits it, locks and
+  re-verifies it, then performs one replay-safe outbox insert. Full suite remains
+  green: 121 passed.
+- 2026-11-11: Added explicit no-side-effect orchestration/failure stages and
+  deterministic newest-source conflict handling. Phase 3 validation now passes
+  with 123 tests.

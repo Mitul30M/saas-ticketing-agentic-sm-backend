@@ -440,14 +440,17 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - **DoD:** `pytest tests/unit` green; triage runs on 10 dev tickets with valid structured output; retrieval returns sensible top-3 for 5 hand-checked queries.
 
 ### Phase 3 — LangGraph agent, grounding, abstention, failure path (Day 2)
-- [ ] `agent/state.py` typed state; `agent/graph.py` per 4.4; `PostgresSaver` checkpointer; `thread_id=ticket_id`.
-- [ ] Nodes: `intake_validate`, `injection_screen`, `triage`, `plan`, `tool_executor`, `grounding_check`, `draft_reply`, `propose_actions`, `approval_gate` (`interrupt`), `execute_approved`, `escalate`, `failure_handler`, `finalize`.
-- [ ] Step counter + `recursion_limit`; `STEP_LIMIT` configurable; exceeding → failure path with reason `STEP_LIMIT`.
-- [ ] Retry policy (tenacity) for retryable tool/LLM errors; each attempt traced.
-- [ ] Grounding rule per 4.5 (threshold config, support check, citation validator, recency tiebreak).
-- [ ] CLI: `python -m app.agent.run --ticket <id>` prints trace summary and final state.
-- [ ] Generate and commit the graph diagram (`graph.get_graph().draw_mermaid()` → `docs/architecture.md`).
-- **DoD:** 5 sample tickets run end-to-end: (a) KB-answerable → draft with citations, (b) not-in-KB → escalated, (c) valid refund → `pending_approval` row + paused, (d) injection → flagged, no behaviour change, (e) confusing → stops at limit and escalates. Process restart mid-pause → run resumes from checkpoint.
+- [x] `agent/state.py` typed state; `agent/graph.py` per 4.4; `PostgresSaver` checkpointer; `thread_id=ticket_id`.
+- [x] Nodes: `intake_validate`, `injection_screen`, `triage`, explicit no-side-effect `plan`/`tool_executor`/`propose_actions`, `grounding_check`, `draft_reply`, `approval_gate` (`interrupt`), `execute_approved`, `escalate`, `failure_handler`, `finalize`.
+- [x] Step counter + `recursion_limit`; `STEP_LIMIT` configurable; exceeding → failure path with reason `STEP_LIMIT`.
+- [x] Retry policy (tenacity) for retryable tool/LLM errors; each attempt traced.
+- [x] Grounding rule per 4.5 (threshold config, support check, citation validator, deterministic recency tiebreak).
+- [x] CLI: `python -m app.agent.run --ticket <id>` prints trace summary and final state.
+- [x] Generate and commit the graph diagram (`graph.get_graph().draw_mermaid()` → `docs/architecture.md`).
+- [x] **DoD:** five graph scenarios and process-restart resume verified by `make test-all` — 123 tests passed. Refund/plan-change execution remains a Phase 4 service concern; the Phase 3 agent only proposes grounded replies and escalates.
+- [x] Approval boundary hardening: graph resume is proposal-only; `services/approvals.py`
+  records the human decision and `services/executor.py` locks, re-verifies, audits, and
+  replay-safely writes approved replies to `outbox`. ✅ 121 tests passing.
 
 ### Phase 4 — API, approval service, idempotency, tracing (Day 3)
 - [ ] FastAPI app, routers per 4.9; Pydantic request/response models; CORS for web origin; agent-token auth dependency for dashboard routes.

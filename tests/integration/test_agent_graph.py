@@ -17,6 +17,8 @@ from app.agent.checkpointer import make_checkpointer
 from app.agent.graph import build_graph
 from app.agent.nodes.draft import CITATION_RE
 from app.config import settings
+from app.services.approvals import record_reply_decision
+from app.services.executor import execute_approved_reply
 
 pytestmark = pytest.mark.usefixtures("migrated_conn")
 
@@ -168,7 +170,7 @@ def test_step_limit_stops_confusing_ticket_and_escalates(
         saver.conn.close()  # type: ignore[attr-defined]
 
 
-def test_restart_resume_approval_records_outbox(
+def test_restart_resume_approval_requires_service_execution(
     migrated_conn: Any, two_customers: Any, db_pool: Any
 ) -> None:
     ticket = _mk_ticket(
@@ -192,11 +194,25 @@ def test_restart_resume_approval_records_outbox(
     assert result["approval"] == {
         "approved": True, "decided_by": "mia", "edited": False, "final_text": draft,
     }
+    assert migrated_conn.execute(
+        "SELECT id FROM outbox WHERE ticket_id = %s", (ticket,)
+    ).fetchone() is None
+    approval_id = record_reply_decision(
+        db_pool, ticket_id=ticket, decided_by="mia", decision="approved"
+    )
+    execute_approved_reply(
+        db_pool,
+        ticket_id=ticket,
+        approval_id=approval_id,
+        approved_by="mia",
+        body=draft,
+    )
     row = migrated_conn.execute(
-        "SELECT approved_by, body FROM outbox WHERE ticket_id = %s", (ticket,)
+        "SELECT approved_by, body, approval_id FROM outbox WHERE ticket_id = %s", (ticket,)
     ).fetchone()
     assert row["approved_by"] == "mia"
     assert row["body"] == draft
+    assert str(row["approval_id"]) == approval_id
     tickets_row = migrated_conn.execute(
         "SELECT agent_outcome, handled_by FROM tickets WHERE id = %s", (ticket,)
     ).fetchone()
