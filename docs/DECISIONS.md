@@ -69,3 +69,10 @@ Format: 3–5 lines per decision. Newest at the bottom.
   remain intentionally uncovered so the agent escalates instead of guessing.
 - `COVERAGE.md` is the labeling source for retrieval/evaluation; near-duplicate refund and outage
   articles make recency and evidence boundaries testable.
+
+### 2026-11-11 · Shared contracts precede provider and tool wiring
+- Agent code receives one `LLMClient` interface and Pydantic tool contracts, so vendor
+  responses and untrusted model arguments cannot leak directly into business services.
+- Taxonomy-to-queue routing is deterministic code rather than an LLM instruction.
+- Full cache persistence, retry/repair, and registry execution stay as separate steps so
+  each safety boundary can be tested independently.

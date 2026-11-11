@@ -37,7 +37,7 @@ class Chunk:
     text: str
 
 
-def parse_article(path: Path) -> Article:
+def parse_article(path: Path, model_name: str) -> Article:
     raw = path.read_text(encoding="utf-8")
     if not raw.startswith("---\n"):
         raise ValueError(f"{path}: missing YAML front matter")
@@ -51,7 +51,7 @@ def parse_article(path: Path) -> Article:
         raise ValueError(f"{path}: missing front matter fields: {', '.join(missing)}")
     if not body.strip():
         raise ValueError(f"{path}: article body is empty")
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{model_name}\0{raw}".encode()).hexdigest()
     return Article(
         article_id=str(metadata["id"]),
         title=str(metadata["title"]),
@@ -107,8 +107,8 @@ def vector_literal(values: Any) -> str:
     return "[" + ",".join(f"{float(value):.8f}" for value in values) + "]"
 
 
-def load_articles(kb_dir: Path) -> list[Article]:
-    articles = [parse_article(path) for path in sorted(kb_dir.glob("KB-*.md"))]
+def load_articles(kb_dir: Path, model_name: str = settings.embed_model) -> list[Article]:
+    articles = [parse_article(path, model_name) for path in sorted(kb_dir.glob("KB-*.md"))]
     if not articles:
         raise ValueError(f"no KB articles found in {kb_dir}")
     ids = [article.article_id for article in articles]
@@ -118,12 +118,18 @@ def load_articles(kb_dir: Path) -> list[Article]:
 
 
 def ingest(kb_dir: Path, model_name: str) -> tuple[int, int]:
-    articles = load_articles(kb_dir)
+    articles = load_articles(kb_dir, model_name)
     model = SentenceTransformer(model_name)
     conn = connect(settings.database_url)
     try:
         article_count = 0
         chunk_count = 0
+        article_ids = {article.article_id for article in articles}
+        if article_ids:
+            conn.execute(
+                "DELETE FROM kb_articles WHERE id <> ALL(%s)",
+                (list(article_ids),),
+            )
         for article in articles:
             existing = conn.execute(
                 "SELECT content_hash FROM kb_articles WHERE id = %s",
@@ -134,10 +140,7 @@ def ingest(kb_dir: Path, model_name: str) -> tuple[int, int]:
             chunks = chunk_article(article)
             if not chunks:
                 raise ValueError(f"{article.article_id}: no chunks generated")
-            texts = [
-                f"{article.title}\n{' / '.join(chunk.heading_path)}\n{chunk.text}"
-                for chunk in chunks
-            ]
+            texts = [chunk_text(article, chunk) for chunk in chunks]
             embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
             with conn.transaction():
                 conn.execute(
@@ -174,7 +177,7 @@ def ingest(kb_dir: Path, model_name: str) -> tuple[int, int]:
                             chunk.index,
                             article.title,
                             list(chunk.heading_path),
-                            chunk.text,
+                            chunk_text(article, chunk),
                             vector_literal(embedding),
                         ),
                     )
@@ -183,6 +186,12 @@ def ingest(kb_dir: Path, model_name: str) -> tuple[int, int]:
     finally:
         conn.close()
     return article_count, chunk_count
+
+
+def chunk_text(article: Article, chunk: Chunk) -> str:
+    heading = " / ".join(chunk.heading_path)
+    prefix = f"{article.title} — {heading}" if heading else article.title
+    return f"{prefix}\n{chunk.text}"
 
 
 def main() -> None:

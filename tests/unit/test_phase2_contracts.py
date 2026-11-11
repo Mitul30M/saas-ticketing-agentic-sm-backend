@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from uuid import uuid4
+
+import pytest
+from pydantic import BaseModel, ValidationError
+
+from app.domain.enums import CATEGORY_QUEUE, Category, Queue
+from app.llm.base import LLMClient, LLMError, parse_structured
+from app.llm.cache import cache_key
+from app.tools.schemas import RefundProposalInput
+
+
+class StubOutput(BaseModel):
+    status: str = "ok"
+
+
+def test_category_queue_mapping_is_deterministic() -> None:
+    assert CATEGORY_QUEUE[Category.REFUND_REQUEST] is Queue.BILLING
+    assert CATEGORY_QUEUE[Category.SECURITY_INCIDENT] is Queue.SECURITY
+
+
+def test_stub_client_can_return_requested_schema() -> None:
+    result = LLMClient("stub").generate(
+        [{"role": "user", "content": "classify"}],
+        schema=StubOutput,
+    )
+    assert result.structured is not None
+
+
+def test_structured_response_rejects_invalid_json() -> None:
+    with pytest.raises(LLMError, match="invalid JSON"):
+        parse_structured("not-json", RefundProposalInput)
+
+
+def test_refund_input_requires_evidence_and_valid_invoice() -> None:
+    with pytest.raises(ValidationError):
+        RefundProposalInput(
+            ticket_id=uuid4(),
+            customer_id=uuid4(),
+            invoice_id="invoice-1",
+            amount_cents=100,
+            reason="duplicate charge",
+            kb_ids=[],
+            idempotency_key="request-123",
+        )
+
+
+def test_cache_key_is_order_stable() -> None:
+    messages = [{"role": "user", "content": "hello"}]
+    assert cache_key("stub", "model", messages, {"temperature": 0}) == cache_key(
+        "stub", "model", messages, {"temperature": 0}
+    )

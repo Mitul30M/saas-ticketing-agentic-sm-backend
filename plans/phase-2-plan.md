@@ -4,7 +4,7 @@
 
 ## II. Checklist
 
-- [ ] `llm/base.py`: `LLMClient.generate(messages, schema|None, tools|None, **params)` returning text/structured + usage; providers: `mock`, `ollama`, `openai_compat`; shared retry/repair for JSON; timeout.
+- [ ] `llm/base.py`: `LLMClient.generate(messages, schema|None, tools|None, **params)` returning text/structured + usage; providers: `stub`, `groq`; shared retry/repair for JSON; timeout.
 - [ ] `llm/cache.py`: sha256 cache wrapper (layer 3 idempotency); logs `cache_hit`.
 - [ ] `tools/schemas.py`: Pydantic models for every tool input/output + `ToolError` codes.
 - [ ] Implement tools per 4.3 with ownership/business-rule validation; each wrapped by `registry.call(name, args, ctx)` → validation → timeout → typed result → trace row.
@@ -12,6 +12,7 @@
 - [ ] Unit tests: every tool — valid input, each invalid input class, each business-rule failure (unknown customer, ownership mismatch, over-refund, outside window, duplicate open request), timeout simulation.
 - [ ] `agent/nodes/triage.py`: structured output `{category, priority, sentiment, reasons{category,priority,sentiment}}`; enums fixed in one module; deterministic `category → queue` map.
 - [ ] Triage prompt files in `agent/prompts/` (versioned, short, ticket text delimited as untrusted).
+- [x] Foundation hardening: pooled DB access, `LLM_TIMEOUT_S=25`, per-call retry semantics, migration 008 title-aware FTS, model-aware KB hashes, stale-article pruning, and title/heading prefixes at ingest. ✅ implementation complete
 
 ## Definition of Done (verify with commands)
 
@@ -30,3 +31,8 @@
 - Ticket text is untrusted data — always delimited in prompts; system policy never includes it (invariant #5).
 
 ## Log & achievements (append)
+
+- 2026-11-11: Added the provider-independent `LLMClient` boundary with `stub` and
+  `groq` providers, structured-output validation, deterministic category/queue taxonomy,
+  initial validated tool contracts, and SHA-256 cache-key helpers. Full provider retry/
+  repair, database cache wrapper, registry, and tool implementations remain open.

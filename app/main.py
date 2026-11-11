@@ -11,16 +11,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import db
 from app.config import settings
 
-app_state: dict[str, db.DictConn] = {}
+app_state: dict[str, db.DictPool] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    conn = db.connect(settings.database_url)
-    db.run_migrations(conn)
-    app_state["db"] = conn
+    pool = db.create_pool(settings.database_url)
+    pool.open(wait=True)
+    with pool.connection() as conn:
+        db.run_migrations(conn)
+    app_state["db"] = pool
     yield
-    conn.close()
+    pool.close()
 
 
 app = FastAPI(title="Nimbus Support Ticket Triage", lifespan=lifespan)
@@ -36,22 +38,17 @@ app.add_middleware(
 )
 
 
-def get_conn() -> db.DictConn:
-    import time
-
-    deadline = time.monotonic() + 1.0
-    while "db" not in app_state and time.monotonic() < deadline:
-        time.sleep(0.05)
+def get_pool() -> db.DictPool:
     if "db" not in app_state:
-        raise RuntimeError("db connection not initialized")
+        raise RuntimeError("db pool not initialized")
     return app_state["db"]
 
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     try:
-        conn = get_conn()
-        conn.execute("SELECT 1").fetchone()
+        with get_pool().connection() as conn:
+            conn.execute("SELECT 1").fetchone()
     except RuntimeError:
         raise HTTPException(status_code=503, detail="starting up") from None
     except Exception:

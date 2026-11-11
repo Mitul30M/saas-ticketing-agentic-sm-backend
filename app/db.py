@@ -14,12 +14,14 @@ from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MIGRATIONS_DIR = BASE_DIR / "db" / "migrations"
 
 # DB rows are always read as dicts (row_factory=dict_row).
 type DictConn = "psycopg.Connection[dict[str, Any]]"
+type DictPool = ConnectionPool[psycopg.Connection[dict[str, Any]]]
 
 
 def connect(conninfo: str) -> DictConn:
@@ -32,6 +34,17 @@ def connect(conninfo: str) -> DictConn:
         return conn
     except psycopg.OperationalError as exc:
         raise RuntimeError(f"database connect failed: {exc}") from exc
+
+
+def create_pool(conninfo: str, *, min_size: int = 1, max_size: int = 10) -> DictPool:
+    """Create a bounded pool whose acquired connections use dict rows."""
+    return ConnectionPool(
+        conninfo,
+        min_size=min_size,
+        max_size=max_size,
+        kwargs={"row_factory": dict_row, "autocommit": True, "connect_timeout": 5},
+        open=False,
+    )
 
 
 def run_migrations(conn: DictConn, migrations_dir: Path = MIGRATIONS_DIR) -> list[str]:

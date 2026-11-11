@@ -431,9 +431,12 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - [ ] Unit tests: every tool — valid input, each invalid input class, each business-rule failure (unknown customer, ownership mismatch, over-refund, outside window, duplicate open request), timeout simulation.
 - [ ] `agent/nodes/triage.py`: structured output `{category, priority, sentiment, reasons{category,priority,sentiment}}`; enums fixed in one module; deterministic `category → queue` map.
 - [ ] Triage prompt files in `agent/prompts/` (versioned, short, ticket text delimited as untrusted).
-- [ ] **[R9]** `app/db.py`: replace the single shared connection in `app/main.py` with a `psycopg_pool.ConnectionPool` (request-scoped connections; the dependency is already installed).
-- [ ] **[R8]** LLM settings: raise `LLM_TIMEOUT_S` from 3.5 to ~20–30 for structured/draft calls, and define `LLM_MAX_CALLS` as *retries per call*, not calls per run (one ticket needs ≥3–4 LLM calls).
-- [ ] **[R11]** At KB ingest, prepend `title — heading path` to the stored chunk `text` so FTS and embeddings both see it (a generated `tsv` cannot use `array_to_string`; Postgres rejects it as non-immutable).
+- [x] Shared Phase 2 contracts: provider-independent `LLMClient`, deterministic category/queue
+  taxonomy, and initial Pydantic tool boundary. ✅ unit-tested; provider retry/repair and tool
+  registry remain open.
+- [x] **[R9]** `app/db.py`: replaced the single shared connection in `app/main.py` with a bounded `psycopg_pool.ConnectionPool`; health checks acquire request-scoped connections.
+- [x] **[R8]** LLM settings: `LLM_TIMEOUT_S=25` and `LLM_MAX_CALLS` is documented as retries per call, not calls per run.
+- [x] **[R11]** At KB ingest, prepend `title — heading path` to stored chunk `text`; migration 008 rebuilds `tsv` from title + text.
 - **DoD:** `pytest tests/unit` green; triage runs on 10 dev tickets with valid structured output; retrieval returns sensible top-3 for 5 hand-checked queries.
 
 ### Phase 3 — LangGraph agent, grounding, abstention, failure path (Day 2)

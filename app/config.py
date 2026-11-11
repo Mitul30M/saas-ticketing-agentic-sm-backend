@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = ""
     llm_base_url: str = ""
-    llm_timeout_s: float = 3.5
+    llm_timeout_s: float = 25.0
+    # Retry attempts per LLM call, not a per-ticket call budget.
     llm_max_calls: int = 2
 
     as_of: datetime = datetime.fromisoformat("2026-11-10T12:00:00+00:00")

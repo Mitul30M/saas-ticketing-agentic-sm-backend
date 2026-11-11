@@ -17,6 +17,8 @@ def test_settings_defaults() -> None:
     assert settings.tool_timeout_s > 0
     assert settings.refund_window_days > 0
     assert settings.llm_provider in {"groq", "stub"}
+    assert settings.llm_timeout_s >= 20
+    assert settings.llm_max_calls >= 1
 
 
 def test_migrations_dir_has_expected_files() -> None:
@@ -29,4 +31,5 @@ def test_migrations_dir_has_expected_files() -> None:
         "003_support.sql",
         "004_platform.sql",
         "005_kb.sql",
+        "008_kb_fts_title.sql",
     } <= names
