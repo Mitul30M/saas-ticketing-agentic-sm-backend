@@ -56,6 +56,7 @@ def _insert_ticket(conn: Any, slug: str, customer_id: str | None, subject: str, 
             received_at = EXCLUDED.received_at,
             from_email = EXCLUDED.from_email,
             from_name = EXCLUDED.from_name,
+            source = 'seed',
             reviewed = TRUE
         """,
         (tid, customer_id, subject, body, content_hash,

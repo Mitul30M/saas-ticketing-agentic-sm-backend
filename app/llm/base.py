@@ -79,11 +79,26 @@ class LLMClient:
     def _stub_response(messages: list[Message], schema: type[SchemaT] | None) -> str:
         if schema is None:
             return "Stub response."
+        # Preferred: the schema supplies a realistic example (deterministic,
+        # valid even for Literals, nested models, and Field constraints).
+        example = getattr(schema, "stub_example", None)
+        if callable(example):
+            return json.dumps(example())
+        # Fallback: fill fields from annotations, then SELF-VALIDATE. Any
+        # shape the naive filler cannot satisfy fails loudly here instead of
+        # silently pushing bad data through the graph.
         values = {
             name: _stub_value(field.annotation, field.default)
             for name, field in schema.model_fields.items()
         }
-        return json.dumps(values)
+        text = json.dumps(values)
+        try:
+            schema.model_validate_json(text)
+        except ValidationError as exc:
+            raise LLMError(
+                "stub output failed schema validation; define stub_example() on the schema"
+            ) from exc
+        return text
 
     @staticmethod
     def _groq_response(

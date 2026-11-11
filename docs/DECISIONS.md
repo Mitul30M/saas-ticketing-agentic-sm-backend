@@ -82,3 +82,17 @@ Format: 3–5 lines per decision. Newest at the bottom.
   into `LLMError`, so graph code never depends on vendor-specific exception classes.
 - The deterministic stub fills required schema fields by annotation rather than relying
   on optional defaults, keeping CI behavior representative of real structured calls.
+
+### 2026-11-11 · Stub structured output: `stub_example()` convention
+- Schemas handed to `LLMClient.generate(schema=...)` should define a
+  `stub_example()` classmethod returning a realistic dict; the stub uses it
+  verbatim (deterministic, valid for Literal/nested/bounded fields).
+- Schemas WITHOUT an example go through the naive annotation filler plus a
+  self-validation pass; anything it cannot satisfy raises `LLMError` in CI
+  instead of silently passing bad data to the graph.
+- Alternative considered: making the generic filler understand Literal,
+  bounds, and nested models — rejected as clever; examples are explainable
+  and double as documentation.
+- Loader (`scripts/load_tickets.py`) skips duplicates by
+  `(from_email, content_hash)` because migration 006 replaced the global
+  unique hash with soft, windowed intake dedupe.

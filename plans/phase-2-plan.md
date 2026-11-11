@@ -38,3 +38,10 @@
   repair, database cache wrapper, registry, and tool implementations remain open.
 - 2026-11-11: Fixed the linker payment join, normalized provider failures to `LLMError`,
   made required-field stub output schema-valid, and added cache-key regression coverage.
+- 2026-11-11: Added `scripts/load_tickets.py` under the migration-006 intake
+  semantics (transport-sender `from_email`, `source='import'`, idempotent via
+  `(from_email, content_hash)` skip check). `make load-tickets` now works end
+  to end: 60 inserted on first run, 60 skipped on rerun. Seed tickets now
+  stamp `source='seed'` on conflict. Added the `stub_example()` convention
+  with fallback self-validation (`LLMError` in CI for unsupported shapes);
+  3 new unit tests in `tests/unit/test_llm_stub.py` (26 passed total).
