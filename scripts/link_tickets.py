@@ -35,7 +35,7 @@ OUT_PATH = Path("data/tickets_all.jsonl")
 DEV_PATH = Path("data/dev/dev_tickets.jsonl")
 
 SELECTION_SEED = 7
-DEV_EVERY_NTH = 8
+DEV_EVERY_NTH = 4
 TOPIC_CAPS: dict[str, int] = {
     "refund_out_of_window": 10,
     "refund_in_window": 10,
@@ -89,6 +89,10 @@ REWRITE_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:the|your) platform\b|\bSaaS platform\b|\bthe app\b", re.IGNORECASE), "the Nimbus workspace"),
     (re.compile(r"\bthe client\b", re.IGNORECASE), "your workspace"),
     (re.compile(r"\baccount management portal\b", re.IGNORECASE), "Nimbus workspace"),
+    (re.compile(r"\bRAID controller\b", re.IGNORECASE), "Nimbus data connector"),
+    (re.compile(r"\bdevice recognition\b", re.IGNORECASE), "integration recognition"),
+    (re.compile(r"\bdevices?\b", re.IGNORECASE), "client applications"),
+    (re.compile(r"\bhardware purchases\b", re.IGNORECASE), "workspace add-ons"),
     (re.compile(r"\boffice gadgets\b", re.IGNORECASE), "the desktop client"),
     (re.compile(r"\boffice devices\b", re.IGNORECASE), "client apps"),
 ]
@@ -312,7 +316,8 @@ def link_tickets() -> dict[str, Any]:
                 "subject": subject.strip() or topic.replace("_", " ").title(),
                 "body": body,
                 "topic": topic,
-                "reviewed": True,
+                # This is normalized by code, not manually reviewed by a person.
+                "reviewed": False,
                 "priority_hint": r["priority"],
                 "type_hint": r["type"],
                 "queue_hint": r["queue"],

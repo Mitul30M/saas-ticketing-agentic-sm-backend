@@ -62,3 +62,10 @@ Format: 3–5 lines per decision. Newest at the bottom.
   wall clock, so refund-window labels and demo data do not change between runs.
 - Migration 006 makes sender identity explicit and requires a recorded human approval plus timestamps
   before refund or plan-change state transitions can reach `approved` or `executed`. Requirements captures live in PLAN §4.2.1 "Reality check".
+
+### 2026-11-11 · KB coverage is explicit and conservative
+- The 30-article KB covers common billing, plan, access, API, sync, refund, and limited outage questions.
+- Security incidents, feature requests, physical-document requests, and incident-specific outage claims
+  remain intentionally uncovered so the agent escalates instead of guessing.
+- `COVERAGE.md` is the labeling source for retrieval/evaluation; near-duplicate refund and outage
+  articles make recency and evidence boundaries testable.

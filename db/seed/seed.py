@@ -187,7 +187,10 @@ def seed_invoices_and_payments(
                 issued = sub["start"]
             else:
                 m = int(suffix[1:])
-                issued = REF_DATE - timedelta(days=30 * m)
+                # Keep two base invoices inside the 30-day policy window and
+                # two outside it so the seeded dataset exercises both paths.
+                age_days = {1: 10, 2: 20, 3: 45, 4: 90}[m]
+                issued = REF_DATE - timedelta(days=age_days)
             invoice_id = f"INV-{c['ref'][2:]}-{suffix}"
             # Newest invoice varies (paid/open/void); older ones are paid.
             is_newest = suffix in ("M4", "A1")
@@ -198,7 +201,9 @@ def seed_invoices_and_payments(
                 INSERT INTO invoices
                     (id, customer_id, subscription_id, amount_cents, currency, status, issued_at, due_at)
                 VALUES (%s, %s, %s, %s, 'USD', %s, %s, %s)
-                ON CONFLICT (id) DO NOTHING
+                ON CONFLICT (id) DO UPDATE SET
+                    issued_at = EXCLUDED.issued_at,
+                    due_at = EXCLUDED.due_at
                 """,
                 (invoice_id, c["id"], sub["id"], amount, status, issued, due),
             )
