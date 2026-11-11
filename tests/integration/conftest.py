@@ -59,8 +59,8 @@ def _teardown(migrated_conn: Any) -> Any:
     """Remove every ITST-marked fixture row, FK-safe order. Runs once."""
     yield
     conn = migrated_conn
-    tickets_uuid = "(SELECT id FROM tickets WHERE subject LIKE 'ITST-%')"
-    tickets_text = "(SELECT id::text FROM tickets WHERE subject LIKE 'ITST-%')"
+    tickets_uuid = "(SELECT id FROM tickets WHERE subject LIKE 'ITST%')"
+    tickets_text = "(SELECT id::text FROM tickets WHERE subject LIKE 'ITST%')"
     customers = "(SELECT id FROM customers WHERE external_ref LIKE 'ITST-%')"
     invoices = (
         "(SELECT id FROM invoices WHERE customer_id IN " + customers + ")"
@@ -77,7 +77,7 @@ def _teardown(migrated_conn: Any) -> Any:
         "DELETE FROM refund_requests WHERE ticket_id IN " + tickets_uuid
         + " OR idempotency_key LIKE 'itst-%'"
     )
-    conn.execute("DELETE FROM tickets WHERE subject LIKE 'ITST-%'")
+    conn.execute("DELETE FROM tickets WHERE subject LIKE 'ITST%'")
     conn.execute(f"DELETE FROM payments WHERE invoice_id IN {invoices}")
     conn.execute(f"DELETE FROM invoices WHERE customer_id IN {customers}")
     conn.execute(f"DELETE FROM subscriptions WHERE customer_id IN {customers}")

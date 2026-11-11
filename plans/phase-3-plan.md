@@ -38,3 +38,10 @@ Plus: process restart mid-pause → run resumes from checkpoint.
 - Graph nodes call services/tools, not the DB directly (layering rule).
 
 ## Log & achievements (append)
+
+- 2026-11-11: Phase 3 graph, grounding gates, approval interrupt, checkpoint
+  resume, retry handling, CLI runner, and integration scenarios are implemented.
+  Fixed the resume test to use `Command(resume=...)`, corrected integration fixture
+  cleanup, generated `docs/architecture.md`, and verified `make test-all` with
+  121 passing tests. Phase remains open until the human executor/service boundary
+  and all five DoD scenarios are reviewed against the final approval API.

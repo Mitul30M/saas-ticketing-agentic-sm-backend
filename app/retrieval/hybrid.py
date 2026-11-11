@@ -6,10 +6,13 @@ injection-safe by design).
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
 RRF_K = 60
+
+_WORD_RE = re.compile(r"[A-Za-z0-9_]+")
 
 
 @dataclass(frozen=True)
@@ -52,14 +55,26 @@ def vector_literal(values: Any) -> str:
     return "[" + ",".join(f"{float(value):.8f}" for value in values) + "]"
 
 
+def _fts_query(query: str) -> str:
+    """OR-combine sanitized tokens. websearch_to_tsquery defaults to AND, so a
+    full natural sentence ("How does the refund policy work?") matched nothing;
+    ticket text is untrusted, so tokens are reduced to [A-Za-z0-9_]+ before they
+    ever reach SQL (still passed as a bind parameter)."""
+    words = _WORD_RE.findall(query)[:64]
+    return " or ".join(words)
+
+
 def fts_search(conn: Any, query: str, limit: int) -> list[dict[str, Any]]:
+    fts = _fts_query(query)
+    if not fts:
+        return []
     rows = conn.execute(
         "SELECT id, kb_id, chunk_idx, title, heading_path, text, "
         "ts_rank(tsv, websearch_to_tsquery('english', %s)) AS score "
         "FROM kb_chunks "
         "WHERE tsv @@ websearch_to_tsquery('english', %s) "
         "ORDER BY score DESC LIMIT %s",
-        (query, query, limit),
+        (fts, fts, limit),
     ).fetchall()
     return [dict(row) for row in rows]
 

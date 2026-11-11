@@ -38,5 +38,11 @@ class Settings(BaseSettings):
     tool_timeout_s: float = 8.0
     refund_window_days: int = 30
 
+    # Grounding gate (PLAN 4.5): the best RRF fused score must reach this
+    # threshold before a draft is attempted. Calibrated on data/dev ONLY;
+    # RRF tops out near 2/(k+1) ~= 0.033 for k=60.
+    grounding_threshold: float = 0.02
+    retrieval_top_k: int = 5
+
 
 settings = Settings()
