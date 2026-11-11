@@ -19,7 +19,11 @@ from app.agent.state import AgentState
 def make_approval_gate_node():
     def approval_gate(state: AgentState) -> dict[str, Any]:
         payload = {
-            "action": "send_reply",
+            "action": (
+                state.get("action")
+                if state.get("action_proposed")
+                else {"kind": "send_reply"}
+            ),
             "ticket_id": state.get("ticket_id"),
             "draft": state.get("draft"),
             "citations": state.get("citations") or [],

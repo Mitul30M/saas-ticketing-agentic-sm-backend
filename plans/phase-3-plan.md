@@ -23,9 +23,11 @@
 
 Plus: process restart mid-pause → run resumes from checkpoint.
 
-Verified with `make test-all`: 123 passed. Refund/plan-change execution remains
-outside this graph and belongs to Phase 4 approval services; this phase pauses
-customer-visible reply proposals only.
+The orchestration now resolves sender-owned customer/invoice/subscription
+evidence and inserts only `pending_approval` refund or plan-change proposals.
+The full five-scenario DoD remains open until the DB-backed action scenario and
+approval API resume path are run against PostgreSQL. The graph still never
+executes refunds, plan changes, or replies.
 
 ## Notes & key facts
 
@@ -57,3 +59,9 @@ customer-visible reply proposals only.
 - 2026-11-11: Added explicit no-side-effect orchestration/failure stages and
   deterministic newest-source conflict handling. Phase 3 validation now passes
   with 123 tests.
+- 2026-11-11: Wired deterministic refund and plan-change intent planning,
+  sender-owned evidence lookups, proposal tools, and action details into the
+  approval interrupt. Added paid_at refund-window enforcement, non-empty
+  grounding/citation gates, immediate escalation on action lookup failure, and
+  registry trace-failure containment. Unit/lint validation passes; DB-backed
+  action verification remains pending.

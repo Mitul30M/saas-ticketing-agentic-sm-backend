@@ -31,9 +31,8 @@ class DraftOutput(BaseModel):
     @classmethod
     def stub_example(cls) -> dict[str, Any]:
         return {
-            "reply": "Stub response: here is what the knowledge base says about "
-                     "your question.",
-            "citations": [],
+            "reply": "Stub response: here is what the knowledge base says [KB-006].",
+            "citations": ["KB-006"],
         }
 
 
@@ -98,6 +97,8 @@ def make_draft_node(pool: Any, client: LLMClient):
             citations = validate_citations(
                 output.reply, output.citations, {str(c["kb_id"]) for c in chunks}
             )
+            if not citations:
+                raise CitationError()
         except CitationError:
             trace_node(
                 pool, ticket_id, trace_id, "draft_reply", "decision",

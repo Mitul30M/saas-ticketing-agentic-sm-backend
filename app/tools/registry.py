@@ -14,6 +14,7 @@ Real tools are wired in build_registry(pool); handlers live in handlers.py.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from app.tools.schemas import ToolContext, ToolError, ToolErrorCode, ToolResult
 # Module-level executor: abandoned (timed-out) handlers finish in the
 # background; the registry never waits for them and never traces twice.
 EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="tool")
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -101,7 +103,7 @@ class ToolRegistry:
             result = _result_from_failure(
                 ToolErrorCode.TIMEOUT, f"tool timed out after {ctx.timeout_s}s", retryable=True
             )
-        except BaseException:
+        except Exception:
             result = _result_from_failure(
                 ToolErrorCode.INTERNAL, "internal tool error", retryable=True
             )
@@ -122,17 +124,20 @@ class ToolRegistry:
     ) -> None:
         duration_ms = int((perf_counter() - started) * 1000)
         error_code = result.error.code.value if result.error else None
-        self._tracer(
-            ticket_id=ticket_id,
-            trace_id=ctx.trace_id,
-            node=name,
-            kind="tool",
-            input_=args if isinstance(args, dict) else {"raw": str(args)},
-            output=result.data if result.ok else None,
-            status="ok" if result.ok else "error",
-            error=error_code,
-            duration_ms=duration_ms,
-        )
+        try:
+            self._tracer(
+                ticket_id=ticket_id,
+                trace_id=ctx.trace_id,
+                node=name,
+                kind="tool",
+                input_=args if isinstance(args, dict) else {"raw": str(args)},
+                output=result.data if result.ok else None,
+                status="ok" if result.ok else "error",
+                error=error_code,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            LOGGER.exception("tool trace write failed for %s", name)
 
 
 def _pool_tracer(pool: Any) -> Callable[..., None]:

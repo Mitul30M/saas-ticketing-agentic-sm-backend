@@ -88,8 +88,9 @@ Format: 3–5 lines per decision. Newest at the bottom.
   `action_proposed` state; it does not write `outbox` or perform customer-visible work.
 - Approval recording and execution are separate service calls that write an audit row,
   lock and re-verify the decision, and make the outbox insert replay-safe.
-- This keeps the agent limited to triage, retrieval, grounding, and drafting while
-  the human-facing approval/API layer owns side effects.
+- The graph may propose a validated refund or plan change after retrieving
+  customer/billing evidence and grounded KB evidence, but it never approves or
+  executes the action. The human-facing approval/API layer owns every side effect.
 
 ### 2026-11-11 · Stub structured output: `stub_example()` convention
 - Schemas handed to `LLMClient.generate(schema=...)` should define a

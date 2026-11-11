@@ -447,7 +447,10 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - [x] Grounding rule per 4.5 (threshold config, support check, citation validator, deterministic recency tiebreak).
 - [x] CLI: `python -m app.agent.run --ticket <id>` prints trace summary and final state.
 - [x] Generate and commit the graph diagram (`graph.get_graph().draw_mermaid()` → `docs/architecture.md`).
-- [x] **DoD:** five graph scenarios and process-restart resume verified by `make test-all` — 123 tests passed. Refund/plan-change execution remains a Phase 4 service concern; the Phase 3 agent only proposes grounded replies and escalates.
+- [ ] **DoD:** five graph scenarios and process-restart resume, including a real
+  refund/plan-change proposal paused at approval, verified by `make test-all`.
+  The graph proposes only `pending_approval` actions; execution remains a Phase 4
+  service concern.
 - [x] Approval boundary hardening: graph resume is proposal-only; `services/approvals.py`
   records the human decision and `services/executor.py` locks, re-verifies, audits, and
   replay-safely writes approved replies to `outbox`. ✅ 121 tests passing.

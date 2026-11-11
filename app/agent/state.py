@@ -19,6 +19,8 @@ class AgentState(TypedDict, total=False):
     triage: dict[str, Any]  # TriageResult.to_dict()
     plan: str
     action_proposed: bool
+    action: dict[str, Any]
+    action_context: dict[str, Any]
     retrieved: list[dict[str, Any]]  # RetrievedChunk.to_dict() list
     grounding: dict[str, Any]  # {supported, reason_code, score, claims}
 

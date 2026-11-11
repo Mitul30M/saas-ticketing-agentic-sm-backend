@@ -45,7 +45,7 @@ class SupportCheckOutput(BaseModel):
             "supported": True,
             "conflicting": False,
             "reason": "The retrieved chunks cover the customer's question.",
-            "claims": [],
+            "claims": [{"claim": "The retrieved policy answers the question.", "kb_id": "KB-006"}],
             "conflicting_kb_ids": [],
         }
 
@@ -139,7 +139,7 @@ def make_grounding_node(pool: Any, client: LLMClient):
             claim for claim in verdict.claims if str(claim.kb_id) in retrieved_ids
         ]
         unsupported = len(verdict.claims) - len(supported_claims)
-        supported = verdict.supported and unsupported == 0
+        supported = verdict.supported and unsupported == 0 and bool(supported_claims)
         trace_node(
             pool, ticket_id, trace_id, "grounding_check", "llm",
             {"prompt_version": PROMPT_VERSION, "best_rrf_score": best_score},
@@ -161,7 +161,7 @@ def make_grounding_node(pool: Any, client: LLMClient):
                     claim for claim in supported_claims
                     if any(str(chunk["kb_id"]) == str(claim.kb_id) for chunk in chunks)
                 ]
-                supported = verdict.supported and not (
+                supported = verdict.supported and bool(supported_claims) and not (
                     len(verdict.claims) > len(supported_claims)
                 )
             if not resolved:

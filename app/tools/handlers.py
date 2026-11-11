@@ -157,8 +157,10 @@ def propose_refund(pool: Any, args: RefundProposalInput) -> dict[str, Any]:
     sender = _require_sender(pool, str(args.ticket_id), str(args.customer_id))
     with pool.connection() as conn:
         invoice = conn.execute(
-            "SELECT id, amount_cents, status, issued_at FROM invoices "
-            "WHERE id = %s AND customer_id = %s",
+            "SELECT i.id, i.amount_cents, i.status, i.issued_at, "
+            "p.paid_at FROM invoices i "
+            "JOIN payments p ON p.invoice_id = i.id AND p.status = 'succeeded' "
+            "WHERE i.id = %s AND i.customer_id = %s",
             (args.invoice_id, sender),
         ).fetchone()
         if invoice is None:
@@ -174,7 +176,7 @@ def propose_refund(pool: Any, args: RefundProposalInput) -> dict[str, Any]:
             "SELECT COALESCE(%s::timestamptz, now()) - make_interval(days => %s) AS floor",
             (as_of, settings.refund_window_days),
         ).fetchone()["floor"]
-        if invoice["issued_at"] < window_floor:
+        if invoice["paid_at"] < window_floor:
             raise ToolFailure(
                 ToolErrorCode.BUSINESS_RULE,
                 f"invoice is outside the {settings.refund_window_days}-day refund window",
