@@ -157,3 +157,9 @@ Format: 3–5 lines per decision. Newest at the bottom.
   kb_ids and claimed key are persisted in the tool trace row (registry writes
   it every call), keeping the audit trail complete without weakening the
   proposal schema.
+
+### 2026-11-11 · Version prompts when structured gates change
+- Grounding and draft prompt versions are bumped when required claims or
+  citations change.
+- This invalidates old LLM cache entries whose structured output may satisfy
+  previous schema semantics but fail the current deterministic gates.

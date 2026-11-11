@@ -23,7 +23,7 @@ from app.agent.state import AgentState
 from app.config import settings
 from app.llm.base import LLMClient
 
-PROMPT_VERSION = "support_v1"
+PROMPT_VERSION = "support_v2"
 _PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / f"{PROMPT_VERSION}.txt"
 
 

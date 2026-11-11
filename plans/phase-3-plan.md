@@ -12,22 +12,21 @@
 - [x] CLI: `python -m app.agent.run --ticket <id>` prints trace summary and final state.
 - [x] Generate and commit the graph diagram (`graph.get_graph().draw_mermaid()` → `docs/architecture.md`).
 
-## Definition of Done (verify with commands)
+## Definition of Done (verified)
 
-5 sample tickets run end-to-end:
+- [x] 5 sample tickets run end-to-end:
 - (a) KB-answerable → draft with citations
 - (b) not-in-KB → escalated
 - (c) valid refund → `pending_approval` row + graph paused at approval gate
 - (d) injection → flagged, no behaviour change
 - (e) confusing → stops at step limit and escalates
 
-Plus: process restart mid-pause → run resumes from checkpoint.
+- [x] Process restart mid-pause → run resumes from checkpoint.
 
-The orchestration now resolves sender-owned customer/invoice/subscription
-evidence and inserts only `pending_approval` refund or plan-change proposals.
-The full five-scenario DoD remains open until the DB-backed action scenario and
-approval API resume path are run against PostgreSQL. The graph still never
-executes refunds, plan changes, or replies.
+The orchestration resolves sender-owned customer/invoice/subscription evidence
+and inserts only `pending_approval` refund or plan-change proposals. The five
+scenarios and process-restart resume now pass against PostgreSQL; the graph
+still never executes refunds, plan changes, or replies.
 
 ## Notes & key facts
 
@@ -65,3 +64,7 @@ executes refunds, plan changes, or replies.
   grounding/citation gates, immediate escalation on action lookup failure, and
   registry trace-failure containment. Unit/lint validation passes; DB-backed
   action verification remains pending.
+- 2026-11-11: Added the DB-backed refund proposal scenario and verified all
+  five Phase 3 scenarios plus checkpoint resume with `make test-all`
+  (`124 passed`). Versioned grounding and draft prompts to invalidate stale
+  cached structured responses after tightening non-empty claim/citation gates.

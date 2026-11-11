@@ -17,6 +17,7 @@ from app.agent.checkpointer import make_checkpointer
 from app.agent.graph import build_graph
 from app.agent.nodes.draft import CITATION_RE
 from app.config import settings
+from app.llm.base import LLMResponse, Usage
 from app.services.approvals import record_reply_decision
 from app.services.executor import execute_approved_reply
 
@@ -25,13 +26,48 @@ pytestmark = pytest.mark.usefixtures("migrated_conn")
 
 def _mk_ticket(migrated_conn: Any, customer_id: str, subject: str, body: str) -> str:
     tag = uuid.uuid4().hex
+    sender = migrated_conn.execute(
+        "SELECT email FROM customers WHERE id = %s", (customer_id,)
+    ).fetchone()["email"]
     return str(
         migrated_conn.execute(
             "INSERT INTO tickets (customer_id, subject, body, content_hash, "
             "from_email, from_name) VALUES (%s,%s,%s,%s,%s,'ITST Agent') RETURNING id",
-            (customer_id, subject, body, f"itst-agent-{tag}", f"agent.{tag}@example.test"),
+            (customer_id, subject, body, f"itst-agent-{tag}", sender),
         ).fetchone()["id"]
     )
+
+
+class RefundProposalLLM:
+    """Scripted structured responses for the DB-backed refund proposal path."""
+
+    def generate(self, messages: Any, schema: Any = None, **_: Any) -> LLMResponse:
+        name = schema.__name__
+        if name == "TriageOutput":
+            payload = schema.model_validate({
+                "category": "refund_request",
+                "priority": "medium",
+                "sentiment": "negative",
+                "reasons": {
+                    "category": "The customer requests a refund.",
+                    "priority": "Routine billing action.",
+                    "sentiment": "The customer is dissatisfied.",
+                },
+            })
+        elif name == "SupportCheckOutput":
+            payload = schema.model_validate({
+                "supported": True,
+                "conflicting": False,
+                "reason": "The refund policy answers the request.",
+                "claims": [{"claim": "Refunds follow the current policy.", "kb_id": "KB-006"}],
+                "conflicting_kb_ids": [],
+            })
+        else:
+            payload = schema.model_validate({
+                "reply": "We can review your refund request under the current policy [KB-006].",
+                "citations": ["KB-006"],
+            })
+        return LLMResponse("", payload, Usage())
 
 
 @pytest.fixture()
@@ -121,6 +157,40 @@ def test_refund_ticket_pauses_for_human_approval_no_outbox(
         "SELECT id FROM outbox WHERE ticket_id = %s", (ticket,)
     ).fetchall()
     assert outbox == [], "no reply may leave without an approved decision"
+
+
+def test_valid_refund_creates_pending_proposal_and_pauses(
+    migrated_conn: Any, two_customers: Any, db_pool: Any
+) -> None:
+    ticket = _mk_ticket(
+        migrated_conn, two_customers.alice_id,
+        "ITST refund request",
+        f"Please refund invoice {two_customers.inv_a} for $50.00.",
+    )
+    saver = make_checkpointer(settings.database_url)
+    graph = build_graph(
+        db_pool, client=RefundProposalLLM(), checkpointer=saver
+    )
+    try:
+        result = _invoke(graph, ticket)
+        assert result["__interrupt__"]
+        assert result["action_proposed"] is True
+        assert result["action"]["kind"] == "refund"
+        request = migrated_conn.execute(
+            "SELECT status, invoice_id, amount_cents FROM refund_requests "
+            "WHERE ticket_id = %s",
+            (ticket,),
+        ).fetchone()
+        assert request == {
+            "status": "pending_approval",
+            "invoice_id": two_customers.inv_a,
+            "amount_cents": 5000,
+        }
+        assert migrated_conn.execute(
+            "SELECT id FROM outbox WHERE ticket_id = %s", (ticket,)
+        ).fetchone() is None
+    finally:
+        saver.conn.close()  # type: ignore[attr-defined]
 
 
 def test_injection_ticket_flagged_but_route_unchanged(
