@@ -59,9 +59,36 @@ Via `curl` / OpenAPI docs: submit ticket → agent pauses at approval → approv
   ownership failure traced, step limit persisted).
 - `make test-all`: **282 passed**; `make lint`: clean.
 
-**Clean-compose walkthrough:** recorded in `docs/DECISIONS.md` / this log after running
-`docker compose down -v` + `AGENT_TOKEN=… docker compose up -d --build`, `make seed`,
-`make ingest-kb`, then curl + psql. Stub mode cannot choose the refund branch (its triage
-is fixed to `invoice_question`); the refund approval is therefore demonstrated via the
-`propose_refund` tool call (the agent's own proposal path) followed by the HTTP decide
-endpoint, and the reply path is demonstrated end-to-end from ticket submission.
+**Clean-compose walkthrough (2026-11-12):** `docker compose down -v`, then
+`AGENT_TOKEN=demo-token docker compose up -d --build` (api/db/worker healthy; migrations applied
+by API startup), `make seed` (101 customers / 368 invoices / 348 payments / 16 tickets),
+`make ingest-kb` (30 articles / 49 chunks). Demo identity: `aaron.martinez.50@example.nimbus.test`,
+invoice `INV-0050-M1` (2000¢ refundable).
+
+- **Reply path (end-to-end over HTTP):**
+  `POST /api/tickets` (Idempotency-Key) → `201 {"ticket_id":"d0977c67-…","duplicate":false}`.
+  The **first** run escalated: `kb_search` trace shows `kind=tool status=error error=timeout` at
+  `8005 ms` — the worker's cold HuggingFace model load exceeded `TOOL_TIMEOUT_S=8`. That is the
+  designed fail-closed path (ticket `awaiting_human`, `escalation_reason=timeout`, no draft), and
+  it is re-runnable. After warming the shared `hf_cache` volume (129 MB, 384-d) the model is local.
+  `POST /api/tickets/{id}/run` → `202` → `awaiting_approval`, `kb_supported=true`,
+  `draft_citations=["KB-006"]`; `GET /api/approvals/pending` shows `send_reply`.
+  `POST /api/approvals/send_reply/{id}/decide` (`X-Operator: mia`, Idempotency-Key) → `202
+  {"approval_id":"1ea31d39-…"}`; replaying the same key returned the identical body.
+  psql: ticket `resolved`; **exactly one** `outbox` row (`approved_by=mia`, body the approved
+  draft); `audit_log` has `reply_decision_recorded` + `reply_executed`; all jobs `done`.
+- **Refund path (the stub cannot triage `refund_request`, so the proposal is made with the
+  agent's own `propose_refund` tool, not by faking the model):** proposal
+  `0b46027d-…` → `pending_approval`. `POST /api/approvals/refund/{id}/decide` → `202`; replay →
+  same `202`. psql: `payments.amount_refunded_cents` `0 → 500` **once**, invoice
+  `partially_refunded`, request `executed`, `audit_log` = `refund_proposed` (agent) +
+  `refund_decision_recorded` (mia) + `refund_executed` (mia). A duplicate replay did not move
+  money again.
+- In-container `/api/metrics/summary` returned `shadow_price_model: gpt-4o-mini` (pricing.yaml is
+  in the image) and the per-ticket trace endpoint returned the node/tool timeline.
+- **Finding fixed afterwards:** a ticket escalated by the cold start kept `escalated=true` after a
+  successful re-run; `apply_run_result` now overwrites `escalated`/`escalation_reason` per run and
+  `mark_resolved` clears them. Covered by `tests/integration/test_ticket_state.py`.
+- **Deployment note:** warm the embedding model (or raise `TOOL_TIMEOUT_S`) before the first live
+  ticket; the `hf_cache` volume in compose makes it a one-time cost.
+

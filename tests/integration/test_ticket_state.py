@@ -32,7 +32,7 @@ def _ticket(conn: Any, customer: Any, status: str = "new") -> str:
 
 def _row(conn: Any, ticket: str) -> dict[str, Any]:
     return conn.execute(
-        "SELECT status, agent_outcome, handled_by, escalation_reason, kb_supported, "
+        "SELECT status, agent_outcome, handled_by, escalated, escalation_reason, kb_supported, "
         "draft_citations, flags, triage_reasons FROM tickets WHERE id=%s", (ticket,)
     ).fetchone()
 
@@ -69,7 +69,29 @@ def test_interrupt_projects_an_approval_pause(
     assert resolved["status"] == "resolved"
     assert resolved["agent_outcome"] == "action_proposed"
     assert resolved["handled_by"] == "agent"
+    assert resolved["escalation_reason"] is None
     mark_resolved(db_pool, ticket)  # idempotent
+
+
+def test_a_successful_rerun_clears_a_stale_escalation(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    ticket = _ticket(migrated_conn, two_customers, status="triaging")
+    apply_run_result(
+        db_pool, ticket,
+        {"outcome": "escalated", "escalation": {"reason_code": "timeout"}},
+    )
+    assert _row(migrated_conn, ticket)["escalated"] is True
+
+    migrated_conn.execute("UPDATE tickets SET status='triaging' WHERE id=%s", (ticket,))
+    apply_run_result(
+        db_pool, ticket,
+        {"__interrupt__": [{"value": {"kind": "send_reply"}}], "approval": {}},
+    )
+    row = _row(migrated_conn, ticket)
+    assert row["status"] == "awaiting_approval"
+    assert row["escalated"] is False
+    assert row["escalation_reason"] is None
 
 
 @pytest.mark.parametrize(
@@ -87,6 +109,7 @@ def test_escalation_and_failure_park_the_ticket_for_a_human(
     apply_run_result(db_pool, ticket, result)
     row = _row(migrated_conn, ticket)
     assert row["status"] == "awaiting_human"
+    assert row["escalated"] is True
     assert row["agent_outcome"] == outcome
     assert row["escalation_reason"] == result["escalation"]["reason_code"]
 

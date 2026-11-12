@@ -96,18 +96,22 @@ def apply_run_result(pool: Any, ticket_id: str, result: dict[str, Any]) -> None:
         if row is None:
             raise ToolFailure(ToolErrorCode.NOT_FOUND, "ticket not found")
         _check_transition(str(row["status"]), target)
+        # escalated/escalation_reason describe THIS run: a successful re-run must
+        # clear a stale "needs human" badge from a previous failure.
+        escalated = target == "awaiting_human"
         conn.execute(
-            "UPDATE tickets SET status = %s, agent_outcome = %s, "
+            "UPDATE tickets SET status = %s, agent_outcome = %s, escalated = %s, "
             "handled_by = CASE WHEN %s = 'awaiting_approval' THEN 'agent' ELSE handled_by END, "
             "triage_reasons = COALESCE(%s::jsonb, triage_reasons), "
             "kb_supported = COALESCE(%s, kb_supported), "
             "draft_citations = COALESCE(%s::text[], draft_citations), "
             "flags = COALESCE(%s::text[], flags), "
-            "escalation_reason = COALESCE(%s, escalation_reason), thread_id = %s "
+            "escalation_reason = %s, thread_id = %s "
             "WHERE id = %s",
             (
                 target,
                 _agent_outcome(result),
+                escalated,
                 target,
                 Json(triage["reasons"]) if triage.get("reasons") is not None else None,
                 grounding.get("supported") if grounding else None,
@@ -133,6 +137,6 @@ def mark_resolved(pool: Any, ticket_id: str) -> None:
         _check_transition(current, "resolved")
         conn.execute(
             "UPDATE tickets SET status='resolved', agent_outcome='action_proposed', "
-            "handled_by='agent' WHERE id=%s",
+            "handled_by='agent', escalated=false, escalation_reason=NULL WHERE id=%s",
             (ticket_id,),
         )

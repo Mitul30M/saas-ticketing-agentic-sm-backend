@@ -307,3 +307,20 @@ Format: 3–5 lines per decision. Newest at the bottom.
   A2–A4 regression coverage that did not exist; this round adds the HTTP matrix,
   job/idempotency/resume/plan-change suites, and worker-level AT2–AT5.
 
+### 2026-11-12 · Clean-compose walkthrough findings
+- The first ticket in a fresh container escalated: `kb_search` exceeded the 8 s
+  tool timeout while the worker cold-loaded the embedding model. Fail-closed and
+  re-runnable, but a deployment should warm the model at startup or raise
+  `TOOL_TIMEOUT_S`; compose now mounts a named `hf_cache` volume so the download
+  is one-time. `make ingest-kb` runs on the host and does not warm the container.
+- A ticket escalated that way kept `escalated=true` and its stale
+  `escalation_reason` after a successful re-run (the update used `COALESCE`).
+  `apply_run_result` now writes `escalated`/`escalation_reason` for every run and
+  `mark_resolved` clears them; history stays in `audit_log`/`trace_events`.
+- Verified over HTTP on the fresh stack: submit (201) → pause at `send_reply` →
+  approve (202) → exactly one `outbox` row + `reply_executed` audit, replay with
+  the same key is identical; refund proposal (agent tool) → approve (202) →
+  `amount_refunded_cents` +500 once, invoice `partially_refunded`, three audit
+  rows; replayed decide is a no-op.
+
+

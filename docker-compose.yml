@@ -20,6 +20,8 @@ services:
     build: .
     ports:
       - "8000:8000"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
     environment:
       DATABASE_URL: postgresql://nimbus:nimbus@db:5432/nimbus
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}
@@ -43,6 +45,8 @@ services:
   worker:
     build: .
     command: ["/srv/.venv/bin/python", "-m", "app.worker"]
+    volumes:
+      - hf_cache:/root/.cache/huggingface
     environment:
       DATABASE_URL: postgresql://nimbus:nimbus@db:5432/nimbus
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}
@@ -55,3 +59,4 @@ services:
 
 volumes:
   pgdata:
+  hf_cache:
