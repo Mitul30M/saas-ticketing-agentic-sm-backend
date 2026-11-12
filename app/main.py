@@ -1,4 +1,4 @@
-"""FastAPI service: GET /healthz for now; tickets/approvals routers come in Phase 4."""
+"""FastAPI service and Phase 4 HTTP boundary."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db
+from app.api.metrics import router as metrics_router
+from app.api.routes import router
 from app.config import settings
 
 app_state: dict[str, db.DictPool] = {}
@@ -30,12 +32,14 @@ app = FastAPI(title="Nimbus Support Ticket Triage", lifespan=lifespan)
 # The separate frontend repo talks to this backend; origins configurable via env.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[],
-    allow_origin_regex=r"^http://localhost(:\d+)?$",  # local dev origins only for now
+    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
+    allow_origin_regex=None,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(router)
+app.include_router(metrics_router)
 
 
 def get_pool() -> db.DictPool:

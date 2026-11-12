@@ -30,6 +30,7 @@ services:
       STEP_LIMIT: ${STEP_LIMIT:-8}
       TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-8}
       REFUND_WINDOW_DAYS: ${REFUND_WINDOW_DAYS:-30}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     depends_on:
       db:
         condition: service_healthy
@@ -38,6 +39,19 @@ services:
       interval: 2s
       timeout: 3s
       retries: 60
+
+  worker:
+    build: .
+    command: ["uv", "run", "python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: postgresql://nimbus:nimbus@db:5432/nimbus
+      LLM_PROVIDER: ${LLM_PROVIDER:-stub}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      AGENT_TOKEN: ${AGENT_TOKEN:-}
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

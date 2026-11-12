@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # RRF tops out near 2/(k+1) ~= 0.033 for k=60.
     grounding_threshold: float = 0.02
     retrieval_top_k: int = 5
+    cors_origins: str = ""
+    intake_dedupe_window_minutes: int = 10
+    job_lock_timeout_s: int = 300
+    job_max_attempts: int = 3
+    idempotency_stale_after_s: int = 300
+    enable_admin_routes: bool = False
+    max_request_bytes: int = 65536
 
 
 settings = Settings()

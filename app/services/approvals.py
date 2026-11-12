@@ -10,6 +10,74 @@ from app.tools.registry import ToolFailure
 from app.tools.schemas import ToolErrorCode
 
 
+def _record_action_decision(
+    pool: Any, *, action_type: str, action_ref: str, ticket_id: str,
+    decided_by: str, decision: str, note: str | None,
+) -> str:
+    if decision not in {"approved", "rejected"} or not decided_by.strip():
+        raise ToolFailure(ToolErrorCode.INVALID_INPUT, "invalid approval decision")
+    with pool.connection() as conn, conn.transaction():
+        row = conn.execute(
+            "SELECT id, status FROM " + (
+                "refund_requests" if action_type == "refund" else "plan_change_requests"
+            ) + " WHERE id=%s FOR UPDATE", (action_ref,)
+        ).fetchone()
+        if row is None:
+            raise ToolFailure(ToolErrorCode.NOT_FOUND, "approval target not found")
+        existing = conn.execute(
+            "SELECT id, decision FROM approvals WHERE action_type=%s AND action_ref=%s "
+            "AND decision IN ('approved','rejected') FOR UPDATE",
+            (action_type, action_ref),
+        ).fetchone()
+        if existing:
+            if existing["decision"] != decision:
+                raise ToolFailure(ToolErrorCode.DUPLICATE, "a final decision already exists")
+            return str(existing["id"])
+        if row["status"] != "pending_approval":
+            raise ToolFailure(ToolErrorCode.DUPLICATE, "approval target is no longer pending")
+        approval = conn.execute(
+            "INSERT INTO approvals (ticket_id, action_type, action_ref, decision, decided_by, note) "
+            "VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+            (ticket_id, action_type, action_ref, decision, decided_by[:200], note),
+        ).fetchone()
+        new_status = "approved" if decision == "approved" else "rejected"
+        conn.execute(
+            f"UPDATE {'refund_requests' if action_type == 'refund' else 'plan_change_requests'} "
+            "SET status=%s, approved_by=%s, decided_at=now() WHERE id=%s",
+            (new_status, decided_by[:200], action_ref),
+        )
+        conn.execute(
+            "INSERT INTO audit_log (actor,event,entity,entity_id,payload) VALUES (%s,%s,%s,%s,%s)",
+            (decided_by[:200], f"{action_type}_decision_recorded", action_type, action_ref,
+             Json({"decision": decision, "approval_id": str(approval["id"])})),
+        )
+    return str(approval["id"])
+
+
+def decide_refund(pool: Any, ref: str, decided_by: str, decision: str, note: str | None) -> str:
+    with pool.connection() as conn:
+        row = conn.execute("SELECT ticket_id FROM refund_requests WHERE id=%s", (ref,)).fetchone()
+    if row is None:
+        raise ToolFailure(ToolErrorCode.NOT_FOUND, "refund request not found")
+    return _record_action_decision(
+        pool, action_type="refund", action_ref=ref, ticket_id=str(row["ticket_id"]),
+        decided_by=decided_by, decision=decision, note=note,
+    )
+
+
+def decide_plan_change(pool: Any, ref: str, decided_by: str, decision: str, note: str | None) -> str:
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT ticket_id FROM plan_change_requests WHERE id=%s", (ref,)
+        ).fetchone()
+    if row is None:
+        raise ToolFailure(ToolErrorCode.NOT_FOUND, "plan change request not found")
+    return _record_action_decision(
+        pool, action_type="plan_change", action_ref=ref, ticket_id=str(row["ticket_id"]),
+        decided_by=decided_by, decision=decision, note=note,
+    )
+
+
 def record_reply_decision(
     pool: Any,
     *,

@@ -462,12 +462,12 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
   `docs/DECISIONS.md`. ✅ `make lint` clean; `make test-all` — 204 passed.
 
 ### Phase 4 — API, approval service, idempotency, tracing (Day 3)
-- [ ] FastAPI app, routers per 4.9; Pydantic request/response models; CORS for web origin; agent-token auth dependency for dashboard routes.
-- [ ] Background execution of agent runs: use the `jobs` table with `FOR UPDATE SKIP LOCKED`, stale-lock reclaim via `locked_at`, `max_attempts`, and `dedupe_key` (columns added in 006) so a double enqueue is one job; resumes after approval are a second job kind. Status transitions persisted.
-- [ ] `services/idempotency.py`: dependency/middleware for `Idempotency-Key` (replay, mismatch→422, concurrency-safe via unique insert).
+- [x] FastAPI app, routers per 4.9; Pydantic request/response models; configurable CORS; fail-closed agent-token auth dependency for dashboard routes. ✅ API smoke-tested: health 200; protected route 503 when token is unset.
+- [x] Background execution foundation: `jobs` uses `FOR UPDATE SKIP LOCKED`, stale-lock reclaim, max attempts, dedupe keys, a worker service, and ticket-state projection.
+- [x] `services/idempotency.py`: canonical request hashing, replay, mismatch rejection, in-flight conflict, stale reclaim, and cleanup.
 - [ ] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email).
-- [ ] `services/tracing.py`: decorators for nodes/tools/LLM calls → `trace_events` with tokens, cost (from `config/pricing.yaml`), cache_hit, duration.
-- [ ] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
+- [x] `services/tracing.py`: cost calculation from `config/pricing.yaml`; LLM traces now populate cost and cache-hit fields.
+- [x] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
 - [ ] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change.
 - **DoD:** via `curl`/OpenAPI docs: submit ticket → agent pauses at approval → approve → refund visible in DB once, audit_log row present.
 

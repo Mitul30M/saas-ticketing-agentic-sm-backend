@@ -15,6 +15,7 @@ from langgraph.graph._node import _Node
 from app import db
 from app.agent.state import AgentState
 from app.config import settings
+from app.services.tracing import cost_usd
 
 
 def trace_node(
@@ -38,7 +39,12 @@ def trace_node(
         db.trace(
             conn, ticket_id, trace_id, node, kind, input_, output,
             status=status, error=error, duration_ms=duration_ms,
-            tokens_in=tokens_in, tokens_out=tokens_out, cache_hit=cache_hit,
+            tokens_in=tokens_in, tokens_out=tokens_out,
+            cost_usd=(
+                cost_usd(settings.llm_provider, tokens_in or 0, tokens_out or 0, cache_hit or False)
+                if kind == "llm" else None
+            ),
+            cache_hit=cache_hit,
         )
 
 

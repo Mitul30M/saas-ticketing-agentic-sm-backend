@@ -1,5 +1,17 @@
 # Phase 4 — API, approval service, idempotency, tracing (Day 3)
 
+## Current implementation status
+
+- P4-1 ticket-state projection, P4-2 idempotency, P4-3 intake/jobs foundations,
+  P4-5 API/auth/CORS routes, and P4-6 cost/metrics tracing are implemented.
+- Migration `009_plan_change_schedule.sql` adds deferred plan-change fields.
+- The full Phase 4 DoD remains open until dedicated approval concurrency,
+  executor rollback, and API safety tests are added and run.
+
+Verification so far: `make lint` passes, `make test-all` reports 232 passed,
+`make migrate` applies migration 009, and API smoke test returns health 200
+while protected routes fail closed with 503 when `AGENT_TOKEN` is unset.
+
 > Source: `PLAN.md` Part 7, Phase 4.
 
 ## II. Checklist

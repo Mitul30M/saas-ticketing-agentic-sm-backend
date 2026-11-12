@@ -6,7 +6,7 @@ from __future__ import annotations
 def test_app_routes_registered() -> None:
     from app.main import app
 
-    paths = {r.path for r in app.routes}
+    paths = {r.path for r in app.routes if hasattr(r, "path")}
     assert "/healthz" in paths
 
 

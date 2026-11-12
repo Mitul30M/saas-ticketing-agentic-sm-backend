@@ -164,6 +164,12 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - This invalidates old LLM cache entries whose structured output may satisfy
   previous schema semantics but fail the current deterministic gates.
 
+### 2026-11-12 · Shared-token dashboard identity
+- Dashboard routes require one configured `AGENT_TOKEN`; the required
+  `X-Operator` value is stored as the human audit label.
+- It is not person-level authentication, which is a known limitation until
+  a real identity provider is added.
+
 ### 2026-11-12 · P3-1/P3-2: strict decision parsing; executor derives the sent text
 - The interrupt resume value authorizes ONLY when it parses as
   `{approved: True (literal), decided_by: non-blank str}`; anything else
