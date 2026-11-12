@@ -7,7 +7,6 @@ so the not-in-KB escalation is a real gate, not stubbed."""
 
 from __future__ import annotations
 
-import re
 import uuid
 from datetime import timedelta
 from typing import Any
@@ -19,9 +18,9 @@ from app.agent.checkpointer import make_checkpointer
 from app.agent.graph import build_graph
 from app.agent.nodes.draft import CITATION_RE
 from app.config import settings
-from app.llm.base import LLMResponse, Usage
 from app.services.approvals import record_reply_decision
 from app.services.executor import execute_approved_reply
+from tests.helpers import ScriptedLLM
 
 pytestmark = pytest.mark.usefixtures("migrated_conn")
 
@@ -38,58 +37,6 @@ def _mk_ticket(migrated_conn: Any, customer_id: str, subject: str, body: str) ->
             (customer_id, subject, body, f"itst-agent-{tag}", sender),
         ).fetchone()["id"]
     )
-
-
-class RefundProposalLLM:
-    """Scripted structured responses for grounded DB-backed proposal paths.
-
-    `category` drives the plan node. The support check approves using a kb_id
-    ACTUALLY PRESENT in the retrieved chunks (parsed from the user content), so
-    claim validation only fails when retrieval itself found nothing."""
-
-    def __init__(self, category: str = "refund_request") -> None:
-        self.category = category
-
-    @staticmethod
-    def _retrieved_kb_ids(messages: list[dict[str, Any]]) -> list[str]:
-        ids: list[str] = []
-        for message in messages:
-            if not isinstance(message, dict):
-                continue
-            for match in re.findall(r"kb_id=(KB-[A-Za-z0-9_-]+)", str(message.get("content", ""))):
-                if match not in ids:
-                    ids.append(match)
-        return ids
-
-    def generate(self, messages: Any, schema: Any = None, **_: Any) -> LLMResponse:
-        name = schema.__name__
-        kb_ids = self._retrieved_kb_ids(messages)
-        primary = kb_ids[0] if kb_ids else "KB-006"
-        if name == "TriageOutput":
-            payload = schema.model_validate({
-                "category": self.category,
-                "priority": "medium",
-                "sentiment": "negative",
-                "reasons": {
-                    "category": "The customer requests an account action.",
-                    "priority": "Routine billing action.",
-                    "sentiment": "The customer is dissatisfied.",
-                },
-            })
-        elif name == "SupportCheckOutput":
-            payload = schema.model_validate({
-                "supported": True,
-                "conflicting": False,
-                "reason": "The retrieved knowledge base chunks answer the request.",
-                "claims": [{"claim": "The policy answers the request.", "kb_id": primary}],
-                "conflicting_kb_ids": [],
-            })
-        else:
-            payload = schema.model_validate({
-                "reply": f"We can help with that under the current policy [{primary}].",
-                "citations": [primary],
-            })
-        return LLMResponse("", payload, Usage())
 
 
 @pytest.fixture()
@@ -221,7 +168,7 @@ def test_valid_refund_creates_pending_proposal_and_pauses(
     )
     saver = make_checkpointer(settings.database_url)
     graph = build_graph(
-        db_pool, client=RefundProposalLLM(), checkpointer=saver
+        db_pool, client=ScriptedLLM(category="refund_request"), checkpointer=saver
     )
     try:
         result = _invoke(graph, ticket)
@@ -248,7 +195,7 @@ def test_valid_refund_creates_pending_proposal_and_pauses(
 
 def _scripted_graph(db_pool: Any, category: str) -> Any:
     saver = make_checkpointer(settings.database_url)
-    graph = build_graph(db_pool, client=RefundProposalLLM(category), checkpointer=saver)
+    graph = build_graph(db_pool, client=ScriptedLLM(category=category), checkpointer=saver)
     graph._test_saver = saver  # type: ignore[attr-defined]  # closed by the caller
     return graph
 
@@ -561,43 +508,102 @@ def test_string_approved_value_is_a_rejection(
     assert_no_side_effects(migrated_conn, ticket)
 
 
-class ScriptedSupportLLM:
-    """Scripted SUPPORT-CHECK verdicts (P3-6 #4): drives each grounding-gate
-    rejection path deterministically. Triage defaults to invoice_question."""
+def test_resume_with_valid_edited_text_uses_the_edit(
+    migrated_conn: Any, two_customers: Any, db_pool: Any
+) -> None:
+    ticket = _mk_ticket(
+        migrated_conn, two_customers.alice_id,
+        "ITST edited resume",
+        "How does the refund policy work?",
+    )
+    first_graph = build_graph(db_pool, checkpointer=make_checkpointer(settings.database_url))
+    assert _invoke(first_graph, ticket)["__interrupt__"]
 
-    def __init__(self, support: dict[str, Any]) -> None:
-        self.support = support
+    edited = "Per the current policy [KB-006], refunds need a support request."
+    second_graph = build_graph(db_pool, checkpointer=make_checkpointer(settings.database_url))
+    result = _resume(
+        second_graph, ticket, {"approved": True, "decided_by": "mia", "edited_text": edited}
+    )
 
-    def generate(self, messages: Any, schema: Any = None, **_: Any) -> LLMResponse:
-        name = schema.__name__
-        if name == "SupportCheckOutput":
-            payload = schema.model_validate(self.support)
-        elif name == "TriageOutput":
-            payload = schema.model_validate({
-                "category": "invoice_question",
-                "priority": "medium",
-                "sentiment": "neutral",
-                "reasons": {
-                    "category": "A billing question.",
-                    "priority": "Routine.",
-                    "sentiment": "Neutral.",
-                },
-            })
-        else:
-            payload = schema.model_validate({
-                "reply": "Per the current policy [KB-006].",
-                "citations": ["KB-006"],
-            })
-        return LLMResponse("", payload, Usage())
+    assert result["outcome"] == "action_proposed"
+    assert result["approval"]["edited"] is True
+    assert result["approval"]["final_text"] == edited
+    assert result["flags"] == []
+    assert_no_side_effects(migrated_conn, ticket)
 
 
-def _support_graph(db_pool: Any, support: dict[str, Any]) -> Any:
-    saver = make_checkpointer(settings.database_url)
-    graph = build_graph(db_pool, client=ScriptedSupportLLM(support), checkpointer=saver)
-    graph._test_saver = saver  # type: ignore[attr-defined]
-    return graph
+def test_resume_edit_with_invented_citation_is_flagged_not_blocked(
+    migrated_conn: Any, two_customers: Any, db_pool: Any
+) -> None:
+    ticket = _mk_ticket(
+        migrated_conn, two_customers.alice_id,
+        "ITST edited resume bad citation",
+        "How does the refund policy work?",
+    )
+    first_graph = build_graph(db_pool, checkpointer=make_checkpointer(settings.database_url))
+    assert _invoke(first_graph, ticket)["__interrupt__"]
+
+    edited = "Trust this invented source [KB-999] for your answer."
+    second_graph = build_graph(db_pool, checkpointer=make_checkpointer(settings.database_url))
+    result = _resume(
+        second_graph, ticket, {"approved": True, "decided_by": "mia", "edited_text": edited}
+    )
+
+    assert result["approval"]["edited"] is True
+    assert result["approval"]["final_text"] == edited  # human authority, never overridden
+    assert "edited_citation_invalid" in result["flags"]
+    assert_no_side_effects(migrated_conn, ticket)
 
 
+def test_resume_edit_with_promise_language_is_flagged_not_blocked(
+    migrated_conn: Any, two_customers: Any, db_pool: Any
+) -> None:
+    ticket = _mk_ticket(
+        migrated_conn, two_customers.alice_id,
+        "ITST edited resume promise",
+        "How does the refund policy work?",
+    )
+    first_graph = build_graph(db_pool, checkpointer=make_checkpointer(settings.database_url))
+    assert _invoke(first_graph, ticket)["__interrupt__"]
+
+    edited = "Good news: your refund has been approved [KB-006]."
+    second_graph = build_graph(db_pool, checkpointer=make_checkpointer(settings.database_url))
+    result = _resume(
+        second_graph, ticket, {"approved": True, "decided_by": "mia", "edited_text": edited}
+    )
+
+    assert result["approval"]["edited"] is True
+    assert result["approval"]["final_text"] == edited  # the human is the authority
+    assert "edited_promise_language" in result["flags"]
+    assert_no_side_effects(migrated_conn, ticket)
+
+
+@pytest.mark.parametrize(
+    "bad_edit",
+    [123, "   ", "x" * (4001)],
+)
+def test_resume_ignores_invalid_edited_text(
+    migrated_conn: Any, two_customers: Any, db_pool: Any, bad_edit: Any
+) -> None:
+    ticket = _mk_ticket(
+        migrated_conn, two_customers.alice_id,
+        "ITST edited resume ignored",
+        "How does the refund policy work?",
+    )
+    first_graph = build_graph(db_pool, checkpointer=make_checkpointer(settings.database_url))
+    paused = _invoke(first_graph, ticket)
+    assert paused["__interrupt__"]
+    draft = paused["draft"]
+
+    second_graph = build_graph(db_pool, checkpointer=make_checkpointer(settings.database_url))
+    result = _resume(
+        second_graph, ticket, {"approved": True, "decided_by": "mia", "edited_text": bad_edit}
+    )
+
+    assert result["approval"]["edited"] is False
+    assert result["approval"]["final_text"] == draft  # original draft kept
+    assert result["flags"] == []
+    assert_no_side_effects(migrated_conn, ticket)
 def _supportverdict(**overrides: Any) -> dict[str, Any]:
     verdict: dict[str, Any] = {
         "supported": True,
@@ -608,6 +614,13 @@ def _supportverdict(**overrides: Any) -> dict[str, Any]:
     }
     verdict.update(overrides)
     return verdict
+
+
+def _support_graph(db_pool: Any, support: dict[str, Any]) -> Any:
+    saver = make_checkpointer(settings.database_url)
+    graph = build_graph(db_pool, client=ScriptedLLM(support=support), checkpointer=saver)
+    graph._test_saver = saver  # type: ignore[attr-defined]
+    return graph
 
 
 def test_support_check_unsupported_escalates_low_confidence(
@@ -709,6 +722,31 @@ def test_injection_refund_ticket_flagged_and_proposal_denied(
         assert migrated_conn.execute(
             "SELECT id FROM outbox WHERE ticket_id = %s", (ticket,)
         ).fetchone() is None
+    finally:
+        graph._test_saver.conn.close()  # type: ignore[attr-defined]
+
+
+def test_malformed_amount_escalates_needs_human_judgement(
+    migrated_conn: Any, two_customers: Any, db_pool: Any
+) -> None:
+    """P4-0.6: '$,' must not crash the graph (it used to raise float('')); it
+    escalates to a human instead of guessing a full remainder refund."""
+    t = two_customers
+    ticket = _mk_ticket(
+        migrated_conn, t.alice_id,
+        "ITST malformed amount",
+        f"I want a refund for invoice {t.inv_a}. Amount: $, please advise. "
+        "What is the refund policy?",
+    )
+    graph = _scripted_graph(db_pool, "refund_request")
+    try:
+        result = _invoke(graph, ticket)
+        assert result["outcome"] == "escalated"
+        assert result["escalation"]["reason_code"] == "NEEDS_HUMAN_JUDGEMENT"
+        assert migrated_conn.execute(
+            "SELECT id FROM refund_requests WHERE ticket_id = %s", (ticket,)
+        ).fetchone() is None
+        assert_no_side_effects(migrated_conn, ticket)
     finally:
         graph._test_saver.conn.close()  # type: ignore[attr-defined]
 

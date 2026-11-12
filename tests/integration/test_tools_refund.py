@@ -94,6 +94,31 @@ def test_refund_success_creates_pending_row_with_evidence(
     assert row["evidence"]["refundable_cents"] == 5000
 
 
+def test_proposal_writes_an_audit_row_in_the_same_transaction(
+    registry, migrated_conn, two_customers, ctx
+) -> None:
+    """P4-0.5: a proposal can never exist without its audit trail row."""
+    t = two_customers
+    ticket = _ticket_for(migrated_conn, t, t.inv_a, f"Refund invoice {t.inv_a} please")
+
+    result = registry.call(
+        "propose_refund", _refund_args(t, ticket, t.inv_a, 500),
+        ticket_id=ticket, ctx=ctx,
+    )
+
+    assert result.ok is True
+    audit = migrated_conn.execute(
+        "SELECT actor, event, entity_id, payload FROM audit_log "
+        "WHERE entity = 'refund_requests' AND entity_id = %s",
+        (result.data["refund_request_id"],),
+    ).fetchall()
+    assert len(audit) == 1
+    assert audit[0]["actor"] == "agent"
+    assert audit[0]["event"] == "refund_proposed"
+    assert audit[0]["payload"]["amount_cents"] == 500
+    assert audit[0]["payload"]["kb_ids"] == ["KB-006", "KB-009"]
+
+
 def test_agent_idempotency_key_is_metadata_only(
     registry, migrated_conn, two_customers, ctx
 ) -> None:

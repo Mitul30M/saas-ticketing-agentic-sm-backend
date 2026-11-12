@@ -33,6 +33,9 @@ test-all:
 eval:
 	uv run python eval/run_eval.py
 
+grounding-report:
+	uv run python -m scripts.grounding_report
+
 lint:
 	uv run ruff check app tests scripts eval db
 	uv run mypy app

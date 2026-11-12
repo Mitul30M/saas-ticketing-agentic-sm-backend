@@ -223,6 +223,22 @@ def propose_refund(pool: Any, args: RefundProposalInput) -> dict[str, Any]:
                     key,
                 ),
             ).fetchone()
+            # Same transaction as the insert: a proposal can never exist
+            # without its audit trail row (P4-0.5).
+            conn.execute(
+                "INSERT INTO audit_log (actor, event, entity, entity_id, payload) "
+                "VALUES ('agent', 'refund_proposed', 'refund_requests', %s, %s)",
+                (
+                    str(row["id"]),
+                    Json({
+                        "ticket_id": str(args.ticket_id),
+                        "invoice_id": args.invoice_id,
+                        "amount_cents": args.amount_cents,
+                        "kb_ids": args.kb_ids,
+                        "idempotency_key": key,
+                    }),
+                ),
+            )
         except psycopg.errors.UniqueViolation:
             # One open request per invoice (partial index) or a replayed
             # identical proposal (invoice, key) -> typed duplicate, no change.
@@ -314,6 +330,24 @@ def propose_plan_change(pool: Any, args: PlanChangeProposalInput) -> dict[str, A
                 "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, status",
                 (str(args.ticket_id), sender, from_plan, args.to_plan_id, args.effective, key),
             ).fetchone()
+            # Same transaction as the insert: a proposal can never exist
+            # without its audit trail row (P4-0.5).
+            conn.execute(
+                "INSERT INTO audit_log (actor, event, entity, entity_id, payload) "
+                "VALUES ('agent', 'plan_change_proposed', 'plan_change_requests', %s, %s)",
+                (
+                    str(row["id"]),
+                    Json({
+                        "ticket_id": str(args.ticket_id),
+                        "customer_id": str(sender),
+                        "from_plan_id": from_plan,
+                        "to_plan_id": args.to_plan_id,
+                        "effective": args.effective,
+                        "kb_ids": args.kb_ids,
+                        "idempotency_key": key,
+                    }),
+                ),
+            )
         except psycopg.errors.UniqueViolation:
             raise ToolFailure(
                 ToolErrorCode.DUPLICATE,

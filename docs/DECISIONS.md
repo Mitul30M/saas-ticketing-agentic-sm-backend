@@ -202,20 +202,38 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - `propose_refund` now returns BUSINESS_RULE (not OWNERSHIP_MISMATCH) for an
   owned invoice without a succeeded payment, via LEFT JOIN + max(paid_at).
 
-### 2026-11-12 · Grounding threshold evidence (P3-6 #4), run against data/dev
-- All 20 `data/dev/dev_tickets.jsonl` tickets pass the retrieval gate after
-  the OR-FTS fix; before it, AND-semantics full-text search left several
-  (security incident, feature request, fax/invoice topics) vector-only and
-  below threshold. Best RRF scores per ticket (top-5, k=60):
-  C-0001 0.0323 · C-0003 0.0323/0.0323 · C-0004 0.0320 · C-0077 0.0325/0.0318/0.0325 ·
-  C-0003(login) 0.0323 · C-0007 0.0328 · C-0011 0.0328 · C-0015 0.0325 · C-0019 0.0323 ·
-  C-0023 0.0325 · C-0027 0.0323 · C-0031 0.0325 · C-0035 0.0309 · C-0039 0.0320 ·
-  C-0043 0.0320 · C-0047 0.0310 · C-0051 0.0315 · C-0055 0.0320.
-- Negative control: gibberish text best_rrf=0.0164 (vector-only, single
-  channel) — below the 0.02 gate. Observed operating band: two-channel
-  agreement ≥~0.030, single-channel ≤~0.0164.
-- Decision: keep `grounding_threshold=0.02`. The score gate separates
-  "retrieval agreed" from "one channel happened to rank something"; whether
-  the retrieved chunks ANSWER the ticket is the support check's job (P3-6
-  scripted-verdict tests pin those paths). Final calibration stays on
-  data/dev only, frozen before the eval run (AGENTS §6).
+### 2026-11-12 · Grounding threshold evidence (P4-0.3, reproducible)
+- **Command:** `make grounding-report` → `eval/results/grounding_dev.csv`
+  (script: `scripts/grounding_report.py`). One row per dev ticket: hand label
+  `kb_covered` (from `data/kb/COVERAGE.md`), best RRF, top chunk, per-channel
+  ranks, channel agreement; with `LLM_PROVIDER=groq` also the real support
+  verdict. Never hand-edit the CSV; regenerate it.
+- Finding after the OR-FTS change (P3-6): the score gate now mostly filters
+  **gibberish** — every real dev ticket passes it (best RRF 0.0309–0.0328,
+  both channels agreeing on the top chunk), while a gibberish negative
+  control scores 0.0164 (single channel). Before the OR-FTS fix, several
+  topics (security incident, feature request, fax/invoice) were vector-only
+  and could fall below the gate.
+- **Honest limitation:** whether retrieved chunks actually ANSWER a ticket
+  is decided by the LLM support check, which so far is only tested with
+  scripted responses. Not-in-KB behaviour (uncovered dev topics escalating)
+  has not been measured with a real model yet. The threshold τ=0.02 is
+  **NOT calibrated** — no calibration claim until the real-model run in the
+  evaluation phase measures it (AGENTS §6: tune on data/dev only, freeze
+  before eval).
+
+
+### 2026-11-12 · Promise-language deny-list widened (P4-0.2)
+- Added future-tense commitment patterns (we will/we'll/I will/going to +
+  process|issue|send|initiate|credit|return|refund; you will/you'll +
+  receive/get + refund; initiated/started/submitted a refund) to
+  `app/agent/nodes/draft.py` PROMISE_PATTERNS.
+- **Defense in depth, NOT the control.** The human approval gate is the
+  control: an approved reply is the human's recorded decision, and edited
+  promise language is flagged (`edited_promise_language`), never blocked.
+  The deny-list only stops the *model* from reaching the gate with a
+  committed refund/plan/action promise in its own draft.
+- False-positive guard: `tests/unit/test_promise_denylist.py` scans every
+  sentence of every `data/kb/*.md` article — real KB text trips nothing.
+  Alternatives rejected: LLM-based promise detection (nondeterministic,
+  defeats the purpose), blocking edited human text (overrides human authority).

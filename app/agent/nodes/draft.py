@@ -26,15 +26,21 @@ CITATION_RE = re.compile(r"\[(KB-[A-Za-z0-9_-]+)\]")
 MAX_REPLY_CHARS = 4000
 
 # Deterministic promise-denial: a draft may never claim a refund, plan change
-# or account action has been or will be carried out — those need a recorded
-# human approval (AGENTS invariant 1). Prompt-only rules are not enough; the
-# check below rejects such drafts before the approval gate sees them.
+# or account action has been, is being, or will be carried out — those need a
+# recorded human approval (AGENTS invariant 1). Prompt-only rules are not
+# enough; the check below rejects such drafts before the approval gate sees
+# them. Defense in depth, NOT the control: the human approval gate is the
+# control (docs/DECISIONS.md).
 PROMISE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"refund\b[^.?!]*\b(has been|will be|is being)\b", re.IGNORECASE),
     re.compile(r"\b(your|the)\s+refund\s+(is|has been)\s+(approved|processed|issued|on its way)", re.IGNORECASE),
     re.compile(r"\b(i|we)( have|'ve)?\s+(issued|processed|sent|approved)\s+(your|the|a)\s+refund", re.IGNORECASE),
     re.compile(r"\b(plan|subscription|account)\b[^.?!]*\b(has been|will be|is being)\s+(changed|upgraded|downgraded|cancelled|canceled|switched)", re.IGNORECASE),
     re.compile(r"\b(i|we)( have|'ve| will|'ll)?\s+(upgraded|downgraded|changed|cancelled|canceled|switched)\s+your\s+(plan|subscription|account)", re.IGNORECASE),
+    # future-tense commitments by the agent
+    re.compile(r"\b(we(?:'ll| will)|i(?:'ll| will)|going to)\s+(process|issue|send|initiate|credit|return|refund)\b", re.IGNORECASE),
+    re.compile(r"\byou(?:'ll| will)\s+(receive|get)\b[^.?!]*\brefund", re.IGNORECASE),
+    re.compile(r"\b(?:initiated|started|submitted|scheduled)\s+(?:a|your|the|full|partial)\s+refund", re.IGNORECASE),
 )
 
 

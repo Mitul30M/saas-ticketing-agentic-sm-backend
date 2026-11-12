@@ -123,6 +123,26 @@ def test_plan_change_success_creates_pending_request(registry, migrated_conn, tw
     assert row["proposed_by"] == "agent"
 
 
+def test_plan_change_proposal_writes_an_audit_row_in_the_same_transaction(
+    registry, migrated_conn, two_customers, ctx
+) -> None:
+    """P4-0.5: a proposal can never exist without its audit trail row."""
+    t = two_customers
+
+    result = registry.call("propose_plan_change", _plan_args(t), ticket_id=t.ticket_id, ctx=ctx)
+
+    assert result.ok is True
+    audit = migrated_conn.execute(
+        "SELECT actor, event, payload FROM audit_log "
+        "WHERE entity = 'plan_change_requests' AND entity_id = %s",
+        (result.data["plan_change_request_id"],),
+    ).fetchall()
+    assert len(audit) == 1
+    assert audit[0]["actor"] == "agent"
+    assert audit[0]["event"] == "plan_change_proposed"
+    assert audit[0]["payload"]["to_plan_id"] == "PLAN-STARTER"
+
+
 def test_plan_change_second_open_request_is_duplicate(registry, two_customers, ctx) -> None:
     t = two_customers
 

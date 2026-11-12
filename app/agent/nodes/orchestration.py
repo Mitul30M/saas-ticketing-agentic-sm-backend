@@ -11,7 +11,7 @@ from app.tools.registry import ToolRegistry
 from app.tools.schemas import ToolContext
 
 INVOICE_RE = re.compile(r"\bINV-\d{4,8}-[A-Z0-9]+\b", re.IGNORECASE)
-AMOUNT_RE = re.compile(r"\$\s?([\d,]+(?:\.\d{1,2})?)")
+AMOUNT_RE = re.compile(r"\$\s?(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)(?![\d,])")
 PLAN_WORD_RE = re.compile(r"\b(free|starter|pro|business)\b", re.IGNORECASE)
 _FROM_TO_RE = re.compile(
     r"\bfrom\s+(free|starter|pro|business)\s+to\s+(free|starter|pro|business)\b",
@@ -135,8 +135,28 @@ def make_tool_executor_node(registry: ToolRegistry):
             )
             matches = list(AMOUNT_RE.finditer(text))
             if len(matches) == 1:
-                amount_cents = parse_amount_cents(text)
+                try:
+                    amount_cents = parse_amount_cents(text)
+                except ValueError:
+                    # parser failure must never fall through to INTERNAL_ERROR
+                    return {
+                        "outcome": "escalated",
+                        "escalation": {
+                            "reason_code": "NEEDS_HUMAN_JUDGEMENT",
+                            "detail": "refund amount could not be parsed unambiguously",
+                        },
+                    }
             elif not matches:
+                if "$" in text:
+                    # a dollar sign is present but no parseable amount: do not
+                    # guess a full refund from malformed text
+                    return {
+                        "outcome": "escalated",
+                        "escalation": {
+                            "reason_code": "NEEDS_HUMAN_JUDGEMENT",
+                            "detail": "ticket mentions a dollar amount that cannot be parsed",
+                        },
+                    }
                 amount_cents = paid - refunded  # no stated amount -> full remainder
             else:
                 return {

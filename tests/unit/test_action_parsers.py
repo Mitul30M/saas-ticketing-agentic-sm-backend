@@ -26,6 +26,19 @@ def test_parse_amount_cents(text: str, expected: int) -> None:
     assert parse_amount_cents(text) == expected
 
 
+@pytest.mark.parametrize("text", ["$,", "$", "$1,2"])
+def test_malformed_amount_text_does_not_crash_the_parser(text: str) -> None:
+    """P4-0.6: '$,' used to match the old regex and crash on float(''). The
+    tightened regex matches only proper amounts (commas must be thousands
+    separators, so '$1,2' does not match) and never raises float('') — the
+    node escalates NEEDS_HUMAN_JUDGEMENT instead."""
+    from app.agent.nodes.orchestration import AMOUNT_RE
+
+    assert AMOUNT_RE.search(text) is None
+    with pytest.raises(ValueError):
+        parse_amount_cents(text)
+
+
 @pytest.mark.parametrize(
     "text",
     [
