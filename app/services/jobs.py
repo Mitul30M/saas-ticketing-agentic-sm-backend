@@ -12,7 +12,9 @@ def enqueue(pool: Any, ticket_id: str, kind: str, payload: dict[str, Any], dedup
     with pool.connection() as conn:
         row = conn.execute(
             "INSERT INTO jobs (ticket_id, kind, payload, dedupe_key, max_attempts) "
-            "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (dedupe_key) DO UPDATE SET dedupe_key = EXCLUDED.dedupe_key "
+            "VALUES (%s,%s,%s,%s,%s) "
+            "ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL "
+            "DO UPDATE SET dedupe_key = EXCLUDED.dedupe_key "
             "RETURNING id",
             (ticket_id, kind, json.dumps(payload), dedupe_key, settings.job_max_attempts),
         ).fetchone()

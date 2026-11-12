@@ -43,7 +43,8 @@ def create_ticket(pool: Any, payload: dict[str, Any]) -> dict[str, Any]:
         ticket_id = str(ticket["id"])
         conn.execute(
             "INSERT INTO jobs (ticket_id, kind, payload, dedupe_key) "
-            "VALUES (%s,'run_agent',%s,%s) ON CONFLICT (dedupe_key) DO NOTHING",
+            "VALUES (%s,'run_agent',%s,%s) "
+            "ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING",
             (ticket_id, "{}", f"run_agent:{ticket_id}"),
         )
     return {"ticket_id": ticket_id, "duplicate": False}

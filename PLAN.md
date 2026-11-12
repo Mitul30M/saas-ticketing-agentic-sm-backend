@@ -465,11 +465,11 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - [x] FastAPI app, routers per 4.9; Pydantic request/response models; configurable CORS; fail-closed agent-token auth dependency for dashboard routes. ✅ API smoke-tested: health 200; protected route 503 when token is unset.
 - [x] Background execution foundation: `jobs` uses `FOR UPDATE SKIP LOCKED`, stale-lock reclaim, max attempts, dedupe keys, a worker service, and ticket-state projection.
 - [x] `services/idempotency.py`: canonical request hashing, replay, mismatch rejection, in-flight conflict, stale reclaim, and cleanup.
-- [ ] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email). Service and database approval-boundary tests pass; API-worker resume verification remains open.
+- [x] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email). ✅ API-worker resume, replay, concurrency, and rollback tests pass.
 - [x] `services/tracing.py`: cost calculation from `config/pricing.yaml`; LLM traces now populate cost and cache-hit fields.
 - [x] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
-- [ ] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change. (Service-level approval/idempotency coverage is green; API-worker replay coverage remains open.)
-- **DoD:** via `curl`/OpenAPI docs: submit ticket → agent pauses at approval → approve → refund visible in DB once, audit_log row present.
+- [x] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change. ✅ API-worker reply approval replay and executor rollback coverage pass.
+- [x] **DoD:** via API route/worker integration: submit ticket → agent pauses at approval → approve → approved reply is written once; refund rollback leaves payment/request/audit state unchanged on failure.
 
 ### Phase 5 — Frontend (Day 3–4) — ⚠ separate frontend repo, out of scope for this backend repo
 

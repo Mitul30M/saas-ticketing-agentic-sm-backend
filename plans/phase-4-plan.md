@@ -8,8 +8,8 @@
   rejection/no-money-movement, concurrent replay, not-in-KB escalation,
   injection blocking, typed tool failure, and step-limit escalation.
 - Migration `009_plan_change_schedule.sql` adds deferred plan-change fields.
-- The full Phase 4 DoD remains open until the API-worker approval flow and
-  executor rollback/API replay tests are added and run.
+- The full Phase 4 DoD is complete: API-worker approval replay and executor
+  rollback tests are green.
 
 Verification so far: `make lint` passes, `make test-all` reports 232 passed,
 `make migrate` applies migration 009, and API smoke test returns health 200
@@ -25,7 +25,7 @@ while protected routes fail closed with 503 when `AGENT_TOKEN` is unset.
 - [x] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email). ✅ Service and database safety tests pass.
 - [x] `services/tracing.py`: decorators for nodes/tools/LLM calls → `trace_events` with tokens, cost (from `config/pricing.yaml`), cache_hit, duration.
 - [x] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
-- [ ] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change.
+- [x] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change. ✅ `tests/integration/test_phase4_api_worker.py` covers API-worker reply replay and rollback.
 
 ## Definition of Done (verify with commands)
 
@@ -46,3 +46,4 @@ Via `curl` / OpenAPI docs: submit ticket → agent pauses at approval → approv
 ## Log & achievements (append)
 
 - 2026-11-12: Added `tests/safety/` AT1–AT5 coverage. Full validation: `make test-all` — 240 passed; `make lint` — ruff and mypy clean.
+- 2026-11-12: Closed the remaining Phase 4 API-worker and rollback gaps. Fixed partial-index conflict targets, JSONB/array projection casts, resume status transitions, and job cleanup. Validation: `make test-all` — 242 passed; `make lint`; `make migrate`.

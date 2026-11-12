@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from psycopg.types.json import Json
+
 from app.tools.registry import ToolFailure
 from app.tools.schemas import ToolErrorCode
 
 _TRANSITIONS = {
     "new": {"triaging"},
     "triaging": {"awaiting_approval", "awaiting_human", "failed"},
-    "awaiting_approval": {"resolved", "awaiting_human"},
+    "awaiting_approval": {"triaging", "resolved", "awaiting_human"},
     "awaiting_human": {"triaging", "resolved"},
     "failed": {"triaging"},
     "resolved": set(),
@@ -46,13 +48,14 @@ def apply_run_result(pool: Any, ticket_id: str, result: dict[str, Any]) -> None:
                 f"illegal ticket status transition {current} -> {target}",
             )
         conn.execute(
-            "UPDATE tickets SET status = %s, triage_reasons = COALESCE(%s, triage_reasons), "
-            "kb_supported = COALESCE(%s, kb_supported), draft_citations = COALESCE(%s, draft_citations), "
+            "UPDATE tickets SET status = %s, triage_reasons = COALESCE(%s::jsonb, triage_reasons), "
+            "kb_supported = COALESCE(%s, kb_supported), "
+            "draft_citations = COALESCE(%s::text[], draft_citations), "
             "escalation_reason = COALESCE(%s, escalation_reason), thread_id = %s "
             "WHERE id = %s",
             (
                 target,
-                triage.get("reasons"),
+                Json(triage["reasons"]) if triage.get("reasons") is not None else None,
                 grounding.get("supported") if grounding else None,
                 result.get("citations"),
                 escalation.get("reason_code"),

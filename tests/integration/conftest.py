@@ -67,6 +67,7 @@ def _teardown(migrated_conn: Any) -> Any:
     )
     conn.execute(f"DELETE FROM trace_events WHERE ticket_id::text IN {tickets_text}")
     conn.execute(f"DELETE FROM outbox WHERE ticket_id IN {tickets_uuid}")
+    conn.execute(f"DELETE FROM jobs WHERE ticket_id IN {tickets_uuid}")
     conn.execute(
         "DELETE FROM approvals WHERE ticket_id IN " + tickets_uuid
         + " OR (action_type='refund' AND action_ref IN "
