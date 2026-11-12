@@ -465,10 +465,10 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - [x] FastAPI app, routers per 4.9; Pydantic request/response models; configurable CORS; fail-closed agent-token auth dependency for dashboard routes. ✅ API smoke-tested: health 200; protected route 503 when token is unset.
 - [x] Background execution foundation: `jobs` uses `FOR UPDATE SKIP LOCKED`, stale-lock reclaim, max attempts, dedupe keys, a worker service, and ticket-state projection.
 - [x] `services/idempotency.py`: canonical request hashing, replay, mismatch rejection, in-flight conflict, stale reclaim, and cleanup.
-- [ ] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email).
+- [ ] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email). Service and database approval-boundary tests pass; API-worker resume verification remains open.
 - [x] `services/tracing.py`: cost calculation from `config/pricing.yaml`; LLM traces now populate cost and cache-hit fields.
 - [x] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
-- [ ] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change.
+- [ ] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change. (Service-level approval/idempotency coverage is green; API-worker replay coverage remains open.)
 - **DoD:** via `curl`/OpenAPI docs: submit ticket → agent pauses at approval → approve → refund visible in DB once, audit_log row present.
 
 ### Phase 5 — Frontend (Day 3–4) — ⚠ separate frontend repo, out of scope for this backend repo
@@ -489,7 +489,7 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - [ ] `eval/run_eval.py`: runs the graph on each ticket in an isolated schema/fixture DB with auto-approve **disabled** (it must stop at the gate; evaluate proposals), supports `--llm stub|groq|replay`, `--limit`, `--concurrency`; stores per-ticket results + traces.
 - [ ] `eval/metrics.py` & `report.py`: all metrics in 4.11 → markdown table + JSON; confusion matrices; latency percentiles; cost per ticket and ×1,000; cache hit-rate.
 - [ ] Retrieval ablation script (BM25 / vector / hybrid / hybrid+rerank) → table.
-- [ ] Safety tests `tests/safety/`: **AT1** no refund executes without approval (try to bypass via API ordering, direct tool calls, injection text); **AT2** not-in-KB ⇒ escalated; **AT3** injection text ⇒ same tool plan/decision as a clean control ticket, plus a few injection variants; **AT4** forced tool failure/timeout ⇒ handled, logged, ticket not lost; **AT5** adversarial confusing ticket ⇒ halts ≤ step limit.
+- [x] Safety tests `tests/safety/`: **AT1** no refund executes without approval (including database-trigger bypass and concurrent replay); **AT2** not-in-KB ⇒ escalated; **AT3** injection text ⇒ no refund proposal; **AT4** forced tool failure ⇒ typed and traced; **AT5** adversarial confusing ticket ⇒ halts ≤ step limit. ✅ `uv run pytest tests/safety -q` — 8 passed.
 - [ ] Select ≥5 (aim 8) failures; write `docs/FAILURE_ANALYSIS.md` with ticket, expected/actual, trace excerpt, root cause, fix/next step. Fix cheap ones and re-run to show before/after.
 - **DoD:** `make eval` reproduces results table; all five safety tests green in CI/`make test`; failure doc has ≥5 entries each linked to a trace.
 

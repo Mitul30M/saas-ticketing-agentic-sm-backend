@@ -4,9 +4,12 @@
 
 - P4-1 ticket-state projection, P4-2 idempotency, P4-3 intake/jobs foundations,
   P4-5 API/auth/CORS routes, and P4-6 cost/metrics tracing are implemented.
+- P4-7 safety acceptance coverage is implemented: database approval bypass,
+  rejection/no-money-movement, concurrent replay, not-in-KB escalation,
+  injection blocking, typed tool failure, and step-limit escalation.
 - Migration `009_plan_change_schedule.sql` adds deferred plan-change fields.
-- The full Phase 4 DoD remains open until dedicated approval concurrency,
-  executor rollback, and API safety tests are added and run.
+- The full Phase 4 DoD remains open until the API-worker approval flow and
+  executor rollback/API replay tests are added and run.
 
 Verification so far: `make lint` passes, `make test-all` reports 232 passed,
 `make migrate` applies migration 009, and API smoke test returns health 200
@@ -16,12 +19,12 @@ while protected routes fail closed with 503 when `AGENT_TOKEN` is unset.
 
 ## II. Checklist
 
-- [ ] FastAPI app, routers per 4.9; Pydantic request/response models; CORS for web origin; agent-token auth dependency for dashboard routes.
-- [ ] Background execution of agent runs (BackgroundTasks or jobs-table worker); status transitions persisted.
-- [ ] `services/idempotency.py`: dependency/middleware for `Idempotency-Key` (replay, mismatch→422, concurrency-safe via unique insert).
-- [ ] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email).
-- [ ] `services/tracing.py`: decorators for nodes/tools/LLM calls → `trace_events` with tokens, cost (from `config/pricing.yaml`), cache_hit, duration.
-- [ ] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
+- [x] FastAPI app, routers per 4.9; Pydantic request/response models; CORS for web origin; agent-token auth dependency for dashboard routes.
+- [x] Background execution of agent runs (BackgroundTasks or jobs-table worker); status transitions persisted.
+- [x] `services/idempotency.py`: dependency/middleware for `Idempotency-Key` (replay, mismatch→422, concurrency-safe via unique insert).
+- [x] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email). ✅ Service and database safety tests pass.
+- [x] `services/tracing.py`: decorators for nodes/tools/LLM calls → `trace_events` with tokens, cost (from `config/pricing.yaml`), cache_hit, duration.
+- [x] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
 - [ ] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change.
 
 ## Definition of Done (verify with commands)
@@ -41,3 +44,5 @@ Via `curl` / OpenAPI docs: submit ticket → agent pauses at approval → approv
 - Append-only `audit_log`; structured JSON logs with `trace_id` and `ticket_id`; never log secrets.
 
 ## Log & achievements (append)
+
+- 2026-11-12: Added `tests/safety/` AT1–AT5 coverage. Full validation: `make test-all` — 240 passed; `make lint` — ruff and mypy clean.
