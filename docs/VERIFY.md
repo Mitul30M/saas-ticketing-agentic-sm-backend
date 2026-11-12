@@ -22,6 +22,18 @@ export PGPASSWORD=nimbus
 export PSQL="psql -h localhost -p 5433 -U nimbus -d nimbus"
 ```
 
+> **First run vs re-run — read this first.**
+> - For the outputs documented here, start from a clean DB (`docker compose down -v` → §1) and run
+>   each section **once**. Idempotency keys live **24 hours**: repeating a request with a
+>   hard-coded key replays the stored response instead of doing the work again. Every mutating
+>   example below therefore uses `$RANDOM`/`uuidgen`; if you paste an old command with a fixed key,
+>   expect a replay, not a new action.
+> - §6.8 shows the `0 -> AMOUNT` refund output on a **freshly seeded** invoice. On a
+>   re-run it picks the next invoice with a positive balance, so the "before" value may
+>   already be non-zero; reset the DB if you want the exact transcript.
+> - `AGENT_TOKEN=demo-token` must be on **every** `docker compose up`; a plain `docker compose up`
+>   recreates the API with an empty token → all dashboard routes return 503.
+
 ---
 
 ## 0. Prerequisites
@@ -44,6 +56,8 @@ cp -n .env.example .env     # then edit AGENT_TOKEN=... (never commit .env)
 ```bash
 # Start db + api + worker from the built image (waits for db health).
 # AGENT_TOKEN is required for the dashboard routes; pass it through compose.
+# KEEP IT ON LATER `up` CALLS TOO: `docker compose up -d` without it recreates
+# the API with an empty token, and every dashboard route then returns 503.
 AGENT_TOKEN=demo-token docker compose up -d --build
 docker compose ps                                  # expect api (healthy), db (healthy), worker (up)
 curl -s $API/healthz                               # {"status":"ok"} (public, no token)
@@ -92,6 +106,9 @@ uv run python -m app.worker                    # terminal 2: job worker (run_loo
 The integration/safety suites need Postgres on `:5433`. If it is unreachable they **skip**
 silently — check the pass count, not just the exit code.
 
+> **Stop the compose worker before `make test-all`.** It polls the same `jobs` table and will
+> claim the `ITST` jobs the tests create, so the run fails in confusing ways. Restart it after.
+
 ```bash
 # Fast unit tests only (no DB, seconds).
 make test
@@ -136,8 +153,10 @@ make eval                  # writes eval/results/ (see eval/run_eval.py)
 prints the final state + trace. Use it to watch the gate without the API.
 
 ```bash
-# Pick any ticket id (e.g. a seed ticket, or one you created in §4).
-TID=$($PSQL -At -c "SELECT id FROM tickets ORDER BY received_at LIMIT 1")
+# Pick a ticket id. The CLI uses its OWN checkpoint thread (`ticket:<id>`), so a
+# ticket already run through the API starts a fresh CLI run — no state is shared.
+# (Seed tickets are the oldest; DESC picks the newest ticket in this DB.)
+TID=$($PSQL -At -c "SELECT id FROM tickets ORDER BY received_at DESC LIMIT 1")
 
 # Fresh run: intake -> screen -> triage -> plan -> tools -> retrieve -> grounding ->
 # draft -> propose -> approval_gate (interrupt). Prints the paused approval payload.
@@ -209,10 +228,13 @@ curl -s -H "$AUTH" $API/api/tickets/$TID | python3 -m json.tool | head -40
 curl -s -H "$AUTH" $API/api/approvals/pending | python3 -m json.tool   # find kind=send_reply
 
 # 3. Approve. Requires the token, an operator label, and an Idempotency-Key.
+#    Use a UNIQUE key per run: keys are kept 24 h, and re-running this exact
+#    command later replays the stored response (old approval id, no new send).
 #    202 -> {"approval_id": "...", "status": "accepted"}
+APPROVE_KEY=approve-once-$RANDOM
 curl -s -X POST $API/api/approvals/send_reply/$TID/decide \
   -H 'Content-Type: application/json' -H "$AUTH" \
-  -H 'X-Operator: mia' -H 'Idempotency-Key: approve-once' \
+  -H 'X-Operator: mia' -H "Idempotency-Key: $APPROVE_KEY" \
   -d '{"decision":"approve","note":"grounded policy answer"}'
 
 # 4. The resume job runs the graph and the executor writes the simulated email to `outbox`.
@@ -230,9 +252,11 @@ $PSQL -x -c "
 # expect: resolved / 1 row / reply_decision_recorded + reply_executed
 
 # 6. Replay the SAME request: identical 202 and still exactly one outbox row.
+#    (Same key + same body => replay by design. A NEW key would run the decision
+#    again, which the service still resolves to the existing approval.)
 curl -s -X POST $API/api/approvals/send_reply/$TID/decide \
   -H 'Content-Type: application/json' -H "$AUTH" \
-  -H 'X-Operator: mia' -H 'Idempotency-Key: approve-once' \
+  -H 'X-Operator: mia' -H "Idempotency-Key: $APPROVE_KEY" \
   -d '{"decision":"approve","note":"grounded policy answer"}'
 # => {"approval_id":"<same>","status":"accepted"}
 ```
@@ -254,11 +278,12 @@ curl -s -o /dev/null -w "wrong token: %{http_code}\n" -H "Authorization: Bearer 
 curl -s -o /dev/null -w "healthz: %{http_code}\n" $API/healthz
 
 # Token NOT configured -> fail closed with 503 on every dashboard route.
-# Run a throwaway API with an empty token on another port:
+# Run a throwaway API with an empty token on another port (job control note below).
 AGENT_TOKEN= DATABASE_URL=postgresql://nimbus:nimbus@localhost:5433/nimbus \
   uv run uvicorn app.main:app --port 8001 &
 curl -s -o /dev/null -w "unconfigured token: %{http_code}\n" http://localhost:8001/api/tickets
-kill %1
+# `kill %1` only works in an interactive shell with job control; otherwise:
+pkill -f "uvicorn app.main:app --port 8001"
 
 # Non-UUID path param -> 422 before any DB work.
 curl -s -o /dev/null -w "bad uuid: %{http_code}\n" -H "$AUTH" $API/api/tickets/not-a-uuid
@@ -437,10 +462,19 @@ uses — the approval/execution path is fully real. The refund idempotency key i
 (`srv-…`), never the caller's value.
 
 ```bash
-# Values from §4 (customer + invoice with refundable > 0).
-export CUSTOMER=5d4f8020-5b54-5bf3-9027-dc7eb713b886
-export INVOICE=INV-0050-M1
-export AMOUNT=500
+# Use the ticket from §4: its sender is a seeded customer, so the ownership check
+# passes. If you re-sourced the shell, set TID first:
+#   TID=$($PSQL -At -c "SELECT id FROM tickets ORDER BY received_at DESC LIMIT 1")
+export CUSTOMER=$($PSQL -At -c "SELECT customer_id FROM tickets WHERE id='$TID'")
+export INVOICE=$($PSQL -At -c "SELECT i.id FROM invoices i JOIN payments p ON p.invoice_id=i.id
+  WHERE i.customer_id='$CUSTOMER' AND p.status='succeeded'
+    AND p.amount_cents - p.amount_refunded_cents > 0
+  ORDER BY (p.amount_refunded_cents = 0) DESC, i.id LIMIT 1")
+export AMOUNT=500     # must be <= remaining refundable; each run permanently reduces it
+
+# NOTE: this invoice is refunded by the run below. Repeating the block picks the
+# next invoice with a positive balance, so the "0 -> AMOUNT" output only holds on
+# a fresh seed (or a different invoice).
 
 # Insert a PENDING proposal (rows must start as pending_approval; the DB trigger enforces it).
 uv run python - <<PY
@@ -464,7 +498,16 @@ export REF=$($PSQL -At -c "SELECT id FROM refund_requests
   WHERE ticket_id='$TID' AND status='pending_approval' ORDER BY created_at DESC LIMIT 1")
 echo "refund request: $REF"
 
-# Before: note the refunded amount (expect 0).
+# DB gate checks — run them NOW, while $REF is still pending_approval.
+# Approving without a recorded human decision must fail (the UPDATE changes nothing).
+$PSQL -c "UPDATE refund_requests SET status='approved', approved_by='bypass' WHERE id='$REF';"
+# expect: ERROR: refund ... cannot be approved without a recorded human decision
+
+# The state machine also rejects skipping straight to executed.
+$PSQL -c "UPDATE refund_requests SET status='executed' WHERE id='$REF';"
+# expect: ERROR: illegal refund status transition pending_approval -> executed
+
+# Before: note the refunded amount (expect 0 on a fresh invoice).
 $PSQL -At -c "SELECT amount_refunded_cents FROM payments WHERE invoice_id='$INVOICE';"
 
 # Approve -> decision row + deterministic executor (202).
@@ -520,16 +563,15 @@ PY
 # curl -s -X POST $API/api/approvals/refund/$REF2/decide \
 #   -H 'Content-Type: application/json' -H "$AUTH" -H 'X-Operator: mia' \
 #   -H "Idempotency-Key: refund-reject-$RANDOM" -d '{"decision":"reject","note":"not eligible"}'
-
-# The DB gate itself: approving without a recorded decision must fail.
-$PSQL -c "UPDATE refund_requests SET status='approved', approved_by='bypass' WHERE id='$REF';"
-# expect: ERROR: refund ... cannot be approved without a recorded human decision
 ```
 
 ### 6.9 Plan change: approve immediately or schedule for period end
 
 ```bash
 # A seeded active customer on PLAN-STARTER moving to PLAN-PRO.
+# NOTE: a successful run leaves this customer ON PLAN-PRO. Repeating the block then
+# fails with "customer is already on the target plan" — pick another starter
+# customer or reset the DB to see the same output again.
 export PCUSTOMER=$($PSQL -At -c "SELECT c.id FROM customers c
   JOIN subscriptions s ON s.customer_id=c.id
   WHERE s.status='active' AND s.plan_id='PLAN-STARTER'
@@ -608,6 +650,7 @@ $PSQL -At -c "SELECT status, thread_id FROM tickets WHERE id='$RTID';"
 ### 6.11 Escalation recovery (stale `escalated` flag is cleared by a successful re-run)
 
 ```bash
+# Requires §6.7: picks the "Quantum fax" ticket that escalated there.
 # Pick a ticket currently awaiting_human, then run it again.
 export ETID=$($PSQL -At -c "SELECT id FROM tickets WHERE status='awaiting_human' AND subject LIKE 'Quantum%' LIMIT 1")
 $PSQL -c "SELECT escalated, escalation_reason FROM tickets WHERE id='$ETID';"   # true | timeout/NOT_IN_KB
@@ -629,7 +672,8 @@ ENABLE_ADMIN_ROUTES=true AGENT_TOKEN=demo-token \
   DATABASE_URL=postgresql://nimbus:nimbus@localhost:5433/nimbus \
   uv run uvicorn app.main:app --port 8002 &
 curl -s -X POST http://localhost:8002/api/admin/ingest-kb -H 'Authorization: Bearer demo-token'
-kill %1
+# `kill %1` only works with job control; otherwise:
+pkill -f "uvicorn app.main:app --port 8002"
 ```
 
 ### 6.13 Scripted-LLM edge cases the stub cannot reach
@@ -651,9 +695,10 @@ uv run pytest tests/unit/test_promise_denylist.py -q
 
 ## 7. Database spot-checks (copy/paste)
 
-> `$TID` comes from §4; `$REF` comes from §6.8. If you skipped those, set them first:
-> `TID=$($PSQL -At -c "SELECT id FROM tickets ORDER BY received_at DESC LIMIT 1")`
-> and `REF=$($PSQL -At -c "SELECT id FROM refund_requests ORDER BY created_at DESC LIMIT 1")`.
+> `$TID` comes from §4. If you skipped those, set it first:
+> `TID=$($PSQL -At -c "SELECT id FROM tickets ORDER BY received_at DESC LIMIT 1")`.
+> **Do not reuse `$REF` from §6.8 here:** it is `executed` by then. The state-machine
+> check below needs a row that is still `pending_approval`.
 
 ```bash
 # Everything about one ticket, in order.
@@ -672,7 +717,11 @@ $PSQL -c "UPDATE audit_log SET actor='tamper' WHERE id=(SELECT min(id) FROM audi
 # expect: ERROR: audit_log is append-only
 
 # Refund state machine rejects illegal moves (pending -> executed).
-$PSQL -c "UPDATE refund_requests SET status='executed' WHERE id='$REF';"
+# Pick a PENDING row; $REF from §6.8 is already executed. If none exists, create one
+# with the §6.8 proposal block and do NOT approve it.
+export REF_PENDING=$($PSQL -At -c "SELECT id FROM refund_requests
+  WHERE status='pending_approval' ORDER BY created_at DESC LIMIT 1")
+$PSQL -c "UPDATE refund_requests SET status='executed' WHERE id='$REF_PENDING';"
 # expect: ERROR: illegal refund status transition pending_approval -> executed
 
 # Cost/latency per node.
@@ -711,13 +760,25 @@ docker compose down -v
 AGENT_TOKEN=demo-token docker compose up -d --build
 make seed && make ingest-kb
 
-# Remove walkthrough rows from THIS DB without wiping the seed:
-$PSQL -c "DELETE FROM outbox WHERE ticket_id IN (SELECT id FROM tickets WHERE subject IN
-           ('Refund policy question','Idempotency demo','Decision rules','Ignore instructions','Quantum fax'));
-         DELETE FROM approvals WHERE ticket_id IN (SELECT id FROM tickets WHERE subject IN
-           ('Refund policy question','Idempotency demo','Decision rules','Ignore instructions','Quantum fax'));"
-# (Jobs/tickets/refunds for those tickets can be removed the same way; the test suite's own
-#  ITST fixtures are cleaned automatically in tests/integration/conftest.py.)
+# Remove walkthrough rows from THIS DB without wiping the seed.
+# FK-safe order. Note: deleting a refund REQUEST does not roll back money already
+# refunded in payments; audit rows are append-only and stay.
+$PSQL <<'SQL'
+CREATE TEMP TABLE runbook_tickets AS
+  SELECT id FROM tickets WHERE subject IN
+    ('Refund policy question','Idempotency demo','Decision rules','Ignore instructions',
+     'Quantum fax','CPU image smoke test','Rerun demo','Upgrade my plan',
+     'Plan change','Plan change demo','HTTP validation');
+DELETE FROM outbox WHERE ticket_id IN (SELECT id FROM runbook_tickets);
+DELETE FROM jobs WHERE ticket_id IN (SELECT id FROM runbook_tickets);
+DELETE FROM approvals WHERE ticket_id IN (SELECT id FROM runbook_tickets);
+DELETE FROM plan_change_requests WHERE ticket_id IN (SELECT id FROM runbook_tickets);
+DELETE FROM refund_requests WHERE ticket_id IN (SELECT id FROM runbook_tickets);
+DELETE FROM tickets WHERE id IN (SELECT id FROM runbook_tickets);
+DROP TABLE runbook_tickets;
+SQL
+# (The test suite's own ITST fixtures are cleaned automatically in
+#  tests/integration/conftest.py.)
 ```
 
 ---
@@ -733,6 +794,9 @@ $PSQL -c "DELETE FROM outbox WHERE ticket_id IN (SELECT id FROM tickets WHERE su
 | `409 request is already in progress` with `Retry-After` | A concurrent request holds the same Idempotency-Key; retry after a second (by design). |
 | Decision returns `409 ticket is not waiting for a reply approval` | Wrong ticket id or no visible draft; the decision must target a paused reply, or the draft already changed. |
 | Refund decision returns `409 a final decision already exists` | One final decision per action; a flipped decision is refused (by design). |
+| Re-running a section returns the same `approval_id` / no new action | The hard-coded Idempotency-Key was reused; keys live 24 h. Use `$RANDOM`/`uuidgen`. |
+| §6.8 shows a non-zero "before" refunded amount | The invoice was refunded by an earlier run; the block now picks the next invoice with a balance. Reset for the exact `0 -> AMOUNT` output. |
+| §6.9 proposes "customer is already on the target plan" | A previous run moved that customer to PLAN-PRO; pick another starter customer or reset. |
 | Tests hang after adding cases | The compose worker is stealing test jobs; `docker compose stop worker` before `make test-all`. |
 | `psql: connection refused` | Use the host port `5433` (compose maps `5433:5432`). |
 
