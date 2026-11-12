@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from typing import Any
@@ -15,7 +16,9 @@ from app.config import settings
 from app.db import create_pool
 from app.services import jobs
 from app.services.executor import execute_approved_reply
-from app.services.ticket_state import apply_run_result
+from app.services.ticket_state import apply_run_result, mark_resolved
+
+logger = logging.getLogger(__name__)
 
 
 def run_one(pool: Any, worker_id: str | None = None) -> bool:
@@ -26,32 +29,41 @@ def run_one(pool: Any, worker_id: str | None = None) -> bool:
     saver = make_checkpointer(settings.database_url)
     try:
         graph = build_graph(pool, checkpointer=saver)
+        payload = json.loads(job["payload"]) if isinstance(job["payload"], str) else job["payload"]
+        with pool.connection() as conn:
+            ticket = conn.execute(
+                "SELECT thread_id FROM tickets WHERE id=%s", (ticket_id,)
+            ).fetchone()
+        thread_id = str(ticket["thread_id"]) if ticket and ticket["thread_id"] else f"ticket:{ticket_id}"
         config = {
-            "configurable": {"thread_id": f"ticket:{ticket_id}"},
+            "configurable": {"thread_id": thread_id},
             "recursion_limit": max(settings.step_limit * 2 + 4, 25),
         }
-        payload = json.loads(job["payload"]) if isinstance(job["payload"], str) else job["payload"]
         if job["kind"] == "resume_agent":
-            result = graph.invoke(Command(resume=payload), config=config)
-            apply_run_result(pool, ticket_id, result)
+            state = graph.get_state(config)
+            if getattr(state, "next", ()):
+                result = graph.invoke(Command(resume=payload), config=config)
+                result["thread_id"] = thread_id
+                apply_run_result(pool, ticket_id, result)
             if payload.get("approved"):
                 execute_approved_reply(
                     pool, ticket_id=ticket_id,
                     approval_id=str(payload["approval_id"]),
                     approved_by=str(payload["decided_by"]),
                 )
-                with pool.connection() as conn:
-                    conn.execute(
-                        "UPDATE tickets SET status='resolved', agent_outcome='action_proposed', "
-                        "handled_by='agent' WHERE id=%s", (ticket_id,)
-                    )
+                mark_resolved(pool, ticket_id)
         else:
             with pool.connection() as conn:
-                conn.execute("UPDATE tickets SET status='triaging' WHERE id=%s", (ticket_id,))
+                conn.execute(
+                    "UPDATE tickets SET status='triaging' WHERE id=%s "
+                    "AND status IN ('new','awaiting_human')", (ticket_id,)
+                )
             result = graph.invoke({"ticket_id": ticket_id}, config=config)
+            result["thread_id"] = thread_id
             apply_run_result(pool, ticket_id, result)
         jobs.complete(pool, str(job["id"]))
     except Exception as exc:
+        logger.exception("agent job failed", extra={"ticket_id": ticket_id})
         jobs.fail(pool, job, str(exc))
     finally:
         saver.conn.close()
@@ -59,7 +71,12 @@ def run_one(pool: Any, worker_id: str | None = None) -> bool:
 
 
 def run_loop(pool: Any) -> None:
+    last_cleanup = 0.0
     while True:
+        if time.monotonic() - last_cleanup >= 300:
+            from app.services.idempotency import cleanup
+            cleanup(pool)
+            last_cleanup = time.monotonic()
         if not run_one(pool):
             time.sleep(1)
 

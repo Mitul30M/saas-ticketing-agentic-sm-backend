@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from psycopg.types.json import Json
@@ -97,36 +98,44 @@ def record_reply_decision(
     if not decided_by.strip():
         raise ToolFailure(ToolErrorCode.INVALID_INPUT, "decided_by is required")
     with pool.connection() as conn, conn.transaction():
-            existing = conn.execute(
-                "SELECT id, decision FROM approvals "
-                "WHERE action_type = 'send_reply' AND action_ref = %s "
-                "AND decision IN ('approved', 'rejected') FOR UPDATE",
-                (ticket_id,),
-            ).fetchone()
-            if existing is not None:
-                if existing["decision"] != decision:
-                    raise ToolFailure(
-                        ToolErrorCode.DUPLICATE,
-                        "a final decision already exists for this reply",
-                    )
-                return str(existing["id"])
-            ticket = conn.execute(
-                "SELECT id, draft_reply FROM tickets WHERE id = %s FOR UPDATE",
-                (ticket_id,),
-            ).fetchone()
-            if ticket is None:
-                raise ToolFailure(ToolErrorCode.NOT_FOUND, "ticket not found")
-            row = conn.execute(
-                "INSERT INTO approvals "
-                "(ticket_id, action_type, action_ref, decision, edited_text, decided_by, note) "
-                "VALUES (%s, 'send_reply', %s, %s, %s, %s, %s) RETURNING id",
-                (ticket_id, ticket_id, decision, edited_text, decided_by[:200], note),
-            ).fetchone()
-            if row is None:
-                raise ToolFailure(ToolErrorCode.INTERNAL, "approval decision returned no row")
-            conn.execute(
-                "INSERT INTO audit_log (actor, event, entity, entity_id, payload) "
-                "VALUES (%s, 'reply_decision_recorded', 'ticket', %s, %s)",
-                (decided_by[:200], ticket_id, Json({"decision": decision})),
+        ticket = conn.execute(
+            "SELECT id, status, draft_reply FROM tickets WHERE id = %s FOR UPDATE",
+            (ticket_id,),
+        ).fetchone()
+        if ticket is None:
+            raise ToolFailure(ToolErrorCode.NOT_FOUND, "ticket not found")
+        if ticket["status"] != "awaiting_approval" or not ticket["draft_reply"]:
+            raise ToolFailure(
+                ToolErrorCode.BUSINESS_RULE,
+                "ticket is not waiting for a reply approval",
             )
-            return str(row["id"])
+        draft = str(ticket["draft_reply"])
+        draft_hash = hashlib.sha256(draft.encode("utf-8")).hexdigest()
+        existing = conn.execute(
+            "SELECT id, decision FROM approvals "
+            "WHERE action_type = 'send_reply' AND action_ref = %s "
+            "AND draft_hash = %s AND decision IN ('approved', 'rejected') FOR UPDATE",
+            (ticket_id, draft_hash),
+        ).fetchone()
+        if existing is not None:
+            if existing["decision"] != decision:
+                raise ToolFailure(
+                    ToolErrorCode.DUPLICATE,
+                    "a final decision already exists for this draft",
+                )
+            return str(existing["id"])
+        snapshot = edited_text if decision == "approved" and edited_text else draft
+        row = conn.execute(
+            "INSERT INTO approvals "
+            "(ticket_id, action_type, action_ref, draft_hash, decision, edited_text, decided_by, note) "
+            "VALUES (%s, 'send_reply', %s, %s, %s, %s, %s, %s) RETURNING id",
+            (ticket_id, ticket_id, draft_hash, decision, snapshot, decided_by[:200], note),
+        ).fetchone()
+        if row is None:
+            raise ToolFailure(ToolErrorCode.INTERNAL, "approval decision returned no row")
+        conn.execute(
+            "INSERT INTO audit_log (actor, event, entity, entity_id, payload) "
+            "VALUES (%s, 'reply_decision_recorded', 'ticket', %s, %s)",
+            (decided_by[:200], ticket_id, Json({"decision": decision, "draft_hash": draft_hash})),
+        )
+        return str(row["id"])

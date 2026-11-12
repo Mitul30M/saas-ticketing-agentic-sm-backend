@@ -37,7 +37,13 @@ def _service_ticket(
     ).fetchone()["id"]
     if draft_text is not None:
         migrated_conn.execute(
-            "UPDATE tickets SET draft_reply = %s WHERE id = %s", (draft_text, ticket)
+            "UPDATE tickets SET draft_reply = %s, status='awaiting_approval' WHERE id = %s",
+            (draft_text, ticket),
+        )
+    else:
+        migrated_conn.execute(
+            "UPDATE tickets SET draft_reply = %s, status='awaiting_approval' WHERE id = %s",
+            (DRAFT, ticket),
         )
     return str(ticket)
 
@@ -224,3 +230,55 @@ def test_executor_sends_edited_text_when_the_human_edited(
         "SELECT body FROM outbox WHERE ticket_id = %s", (ticket,)
     ).fetchone()
     assert row["body"] == EDITED
+
+
+def test_reply_decision_requires_visible_pending_draft(
+    migrated_conn: Any, two_customers: Any, db_pool: Any
+) -> None:
+    ticket = _service_ticket(migrated_conn, two_customers)
+    migrated_conn.execute(
+        "UPDATE tickets SET draft_reply=NULL, status='triaging' WHERE id=%s", (ticket,)
+    )
+    with pytest.raises(ToolFailure) as exc:
+        record_reply_decision(db_pool, ticket_id=ticket, decided_by="mia", decision="approved")
+    assert exc.value.code == ToolErrorCode.BUSINESS_RULE
+    assert _decision_count(migrated_conn, ticket) == 0
+
+
+def test_rejected_draft_can_be_replaced_and_approved(
+    migrated_conn: Any, two_customers: Any, db_pool: Any
+) -> None:
+    ticket = _service_ticket(migrated_conn, two_customers, draft_text=DRAFT)
+    rejected = record_reply_decision(
+        db_pool, ticket_id=ticket, decided_by="mia", decision="rejected"
+    )
+    new_draft = "replacement draft [KB-006]"
+    migrated_conn.execute("UPDATE tickets SET draft_reply=%s WHERE id=%s", (new_draft, ticket))
+    approved = record_reply_decision(
+        db_pool, ticket_id=ticket, decided_by="mia", decision="approved"
+    )
+    assert approved != rejected
+    execute_approved_reply(
+        db_pool, ticket_id=ticket, approval_id=approved, approved_by="mia"
+    )
+    assert migrated_conn.execute(
+        "SELECT body FROM outbox WHERE approval_id=%s", (approved,)
+    ).fetchone()["body"] == new_draft
+
+
+def test_reply_executor_sends_approval_snapshot_after_draft_changes(
+    migrated_conn: Any, two_customers: Any, db_pool: Any
+) -> None:
+    ticket = _service_ticket(migrated_conn, two_customers, draft_text=DRAFT)
+    approval_id = record_reply_decision(
+        db_pool, ticket_id=ticket, decided_by="mia", decision="approved"
+    )
+    migrated_conn.execute(
+        "UPDATE tickets SET draft_reply=%s WHERE id=%s", ("changed after approval", ticket)
+    )
+    execute_approved_reply(
+        db_pool, ticket_id=ticket, approval_id=approval_id, approved_by="mia"
+    )
+    assert migrated_conn.execute(
+        "SELECT body FROM outbox WHERE approval_id=%s", (approval_id,)
+    ).fetchone()["body"] == DRAFT

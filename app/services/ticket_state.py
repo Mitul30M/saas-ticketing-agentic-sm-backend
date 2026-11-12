@@ -11,7 +11,7 @@ from app.tools.schemas import ToolErrorCode
 
 _TRANSITIONS = {
     "new": {"triaging"},
-    "triaging": {"awaiting_approval", "awaiting_human", "failed"},
+    "triaging": {"awaiting_approval", "awaiting_human", "resolved", "failed"},
     "awaiting_approval": {"triaging", "resolved", "awaiting_human"},
     "awaiting_human": {"triaging", "resolved"},
     "failed": {"triaging"},
@@ -51,6 +51,7 @@ def apply_run_result(pool: Any, ticket_id: str, result: dict[str, Any]) -> None:
             "UPDATE tickets SET status = %s, triage_reasons = COALESCE(%s::jsonb, triage_reasons), "
             "kb_supported = COALESCE(%s, kb_supported), "
             "draft_citations = COALESCE(%s::text[], draft_citations), "
+            "flags = COALESCE(%s::text[], flags), "
             "escalation_reason = COALESCE(%s, escalation_reason), thread_id = %s "
             "WHERE id = %s",
             (
@@ -58,8 +59,31 @@ def apply_run_result(pool: Any, ticket_id: str, result: dict[str, Any]) -> None:
                 Json(triage["reasons"]) if triage.get("reasons") is not None else None,
                 grounding.get("supported") if grounding else None,
                 result.get("citations"),
+                result.get("flags"),
                 escalation.get("reason_code"),
-                f"ticket:{ticket_id}",
+                result.get("thread_id") or f"ticket:{ticket_id}",
                 ticket_id,
             ),
+        )
+
+
+def mark_resolved(pool: Any, ticket_id: str) -> None:
+    with pool.connection() as conn, conn.transaction():
+        row = conn.execute(
+            "SELECT status FROM tickets WHERE id=%s FOR UPDATE", (ticket_id,)
+        ).fetchone()
+        if row is None:
+            raise ToolFailure(ToolErrorCode.NOT_FOUND, "ticket not found")
+        current = str(row["status"])
+        if current == "resolved":
+            return
+        if "resolved" not in _TRANSITIONS.get(current, set()):
+            raise ToolFailure(
+                ToolErrorCode.BUSINESS_RULE,
+                f"illegal ticket status transition {current} -> resolved",
+            )
+        conn.execute(
+            "UPDATE tickets SET status='resolved', agent_outcome='action_proposed', "
+            "handled_by='agent' WHERE id=%s",
+            (ticket_id,),
         )

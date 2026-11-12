@@ -16,7 +16,9 @@ def protected(
     if not settings.agent_token:
         raise HTTPException(status_code=503, detail="dashboard authentication is not configured")
     expected = f"Bearer {settings.agent_token}"
-    if authorization is None or not hmac.compare_digest(authorization, expected):
+    if authorization is None or not hmac.compare_digest(
+        authorization.encode("utf-8"), expected.encode("utf-8")
+    ):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 

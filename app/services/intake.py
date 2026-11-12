@@ -42,9 +42,13 @@ def create_ticket(pool: Any, payload: dict[str, Any]) -> dict[str, Any]:
         ).fetchone()
         ticket_id = str(ticket["id"])
         conn.execute(
+            "UPDATE tickets SET thread_id=%s WHERE id=%s",
+            (f"ticket:{ticket_id}:run:1", ticket_id),
+        )
+        conn.execute(
             "INSERT INTO jobs (ticket_id, kind, payload, dedupe_key) "
             "VALUES (%s,'run_agent',%s,%s) "
             "ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING",
-            (ticket_id, "{}", f"run_agent:{ticket_id}"),
+            (ticket_id, "{}", f"run_agent:{ticket_id}:1"),
         )
     return {"ticket_id": ticket_id, "duplicate": False}

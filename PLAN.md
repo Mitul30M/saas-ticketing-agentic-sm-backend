@@ -469,7 +469,17 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - [x] `services/tracing.py`: cost calculation from `config/pricing.yaml`; LLM traces now populate cost and cache-hit fields.
 - [x] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
 - [x] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change. ✅ API-worker reply approval replay and executor rollback coverage pass.
-- [x] **DoD:** via API route/worker integration: submit ticket → agent pauses at approval → approve → approved reply is written once; refund rollback leaves payment/request/audit state unchanged on failure.
+- [x] **DoD:** via API route/worker integration: submit ticket → agent pauses at approval → approve → approved reply is written once; refund approval executes once with decision/execution audit rows; refund rollback leaves payment/request/audit state unchanged on failure. ✅ `make test-all` — 248 passed; `make lint`; `make migrate` through 011.
+
+#### Supplemental Phase 4 closure evidence
+- [x] Draft-bound reply approvals, fresh rerun threads, convergent resume execution,
+  terminal job escalation, UUID/token validation, dashboard evidence, request-size
+  enforcement, and shadow-cost metrics are implemented and covered by the current
+  database-backed suite.
+- [ ] HTTP-level `TestClient` auth/validation/idempotency matrix from
+  `PHASE4_CLOSURE.md` C1.
+- [ ] Clean-compose `curl` + `psql` walkthrough with captured output from
+  `PHASE4_CLOSURE.md` D2.
 
 ### Phase 5 — Frontend (Day 3–4) — ⚠ separate frontend repo, out of scope for this backend repo
 

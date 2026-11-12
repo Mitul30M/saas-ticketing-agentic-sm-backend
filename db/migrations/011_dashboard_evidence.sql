@@ -1,0 +1,5 @@
+ALTER TABLE tickets
+    ADD COLUMN IF NOT EXISTS flags TEXT[] NOT NULL DEFAULT '{}';
+
+ALTER TABLE plan_change_requests
+    ADD COLUMN IF NOT EXISTS evidence JSONB NOT NULL DEFAULT '{}'::jsonb;

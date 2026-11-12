@@ -8,12 +8,19 @@
   rejection/no-money-movement, concurrent replay, not-in-KB escalation,
   injection blocking, typed tool failure, and step-limit escalation.
 - Migration `009_plan_change_schedule.sql` adds deferred plan-change fields.
-- The full Phase 4 DoD is complete: API-worker approval replay and executor
-  rollback tests are green.
+- The full Phase 4 service/worker DoD is complete: API-worker approval replay,
+  draft-bound reply decisions, refund approval replay, and executor rollback
+  tests are green.
 
-Verification so far: `make lint` passes, `make test-all` reports 232 passed,
-`make migrate` applies migration 009, and API smoke test returns health 200
-while protected routes fail closed with 503 when `AGENT_TOKEN` is unset.
+The implementation closure is complete, but the supplemental
+`PHASE4_CLOSURE.md` evidence checklist still has HTTP-level contract coverage
+and a clean-compose curl/psql walkthrough outstanding. Those are intentionally
+not represented as completed here without that evidence.
+
+Verification so far: `make lint` passes, `make test-all` reports 248 passed,
+`make migrate` applies migrations through 011, and the API middleware enforces
+the configured ticket request-size limit. Protected routes fail closed with
+503 when `AGENT_TOKEN` is unset.
 
 > Source: `PLAN.md` Part 7, Phase 4.
 
@@ -47,3 +54,9 @@ Via `curl` / OpenAPI docs: submit ticket → agent pauses at approval → approv
 
 - 2026-11-12: Added `tests/safety/` AT1–AT5 coverage. Full validation: `make test-all` — 240 passed; `make lint` — ruff and mypy clean.
 - 2026-11-12: Closed the remaining Phase 4 API-worker and rollback gaps. Fixed partial-index conflict targets, JSONB/array projection casts, resume status transitions, and job cleanup. Validation: `make test-all` — 242 passed; `make lint`; `make migrate`.
+- 2026-11-12: Hardened closure paths: reply approvals are draft-hash bound and
+  snapshot their approved text; resume execution is retry-convergent; reruns use
+  fresh checkpoint threads; terminal jobs escalate safely; dashboard projections
+  include flags and evidence; metrics include shadow cost and cache/tool rates.
+  Added migration 010/011 and regression coverage. Validation: `make lint`;
+  `make test-all` — 248 passed; `make migrate`.

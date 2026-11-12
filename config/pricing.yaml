@@ -4,3 +4,7 @@ stub:
 groq:
   input_per_million: 0
   output_per_million: 0
+reference:
+  label: shadow pricing for a paid reference model
+  input_per_million: 0.15
+  output_per_million: 0.60

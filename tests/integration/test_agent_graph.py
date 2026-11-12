@@ -413,6 +413,9 @@ def test_restart_resume_approval_requires_service_execution(
     assert migrated_conn.execute(
         "SELECT draft_reply FROM tickets WHERE id = %s", (ticket,)
     ).fetchone()["draft_reply"] == draft
+    migrated_conn.execute(
+        "UPDATE tickets SET status='awaiting_approval' WHERE id=%s", (ticket,)
+    )
     assert migrated_conn.execute(
         "SELECT id FROM outbox WHERE ticket_id = %s", (ticket,)
     ).fetchone() is None

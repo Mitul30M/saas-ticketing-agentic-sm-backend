@@ -140,12 +140,6 @@ def execute_approved_reply(
                     "approval does not authorize this reply",
                 )
             body = approval["edited_text"]
-            if body is None:
-                ticket = conn.execute(
-                    "SELECT draft_reply FROM tickets WHERE id = %s FOR UPDATE",
-                    (ticket_id,),
-                ).fetchone()
-                body = ticket["draft_reply"] if ticket else None
             if not body:
                 raise ToolFailure(
                     ToolErrorCode.INTERNAL, "no approved reply text available"

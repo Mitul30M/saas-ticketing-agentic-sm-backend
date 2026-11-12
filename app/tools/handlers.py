@@ -301,11 +301,7 @@ def _server_plan_key(ticket_id: str, customer_id: str, to_plan_id: str) -> str:
 
 
 def propose_plan_change(pool: Any, args: PlanChangeProposalInput) -> dict[str, Any]:
-    """Insert a PENDING plan-change request. Never approves, never executes.
-
-    plan_change_requests has no evidence column: the evidence (kb_ids + the
-    claimed key) is persisted in the tool trace row written by the registry.
-    """
+    """Insert a PENDING plan-change request. Never approves, never executes."""
     sender = _require_sender(pool, str(args.ticket_id), str(args.customer_id))
     with pool.connection() as conn:
         target = conn.execute(
@@ -326,9 +322,12 @@ def propose_plan_change(pool: Any, args: PlanChangeProposalInput) -> dict[str, A
         try:
             row = conn.execute(
                 "INSERT INTO plan_change_requests "
-                "(ticket_id, customer_id, from_plan_id, to_plan_id, effective, idempotency_key) "
-                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, status",
-                (str(args.ticket_id), sender, from_plan, args.to_plan_id, args.effective, key),
+                "(ticket_id, customer_id, from_plan_id, to_plan_id, effective, evidence, idempotency_key) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id, status",
+                (
+                    str(args.ticket_id), sender, from_plan, args.to_plan_id,
+                    args.effective, Json({"kb_ids": args.kb_ids}), key,
+                ),
             ).fetchone()
             # Same transaction as the insert: a proposal can never exist
             # without its audit trail row (P4-0.5).

@@ -152,11 +152,11 @@ Format: 3–5 lines per decision. Newest at the bottom.
   prompt states the injection rule. A guard in `_system_prompt` refuses a
   system prompt that contains the delimiters.
 
-### 2026-11-11 · plan_change evidence lives in the trace
-- `plan_change_requests` has no evidence column; the validated proposal's
-  kb_ids and claimed key are persisted in the tool trace row (registry writes
-  it every call), keeping the audit trail complete without weakening the
-  proposal schema.
+### 2026-11-11 · plan_change evidence is duplicated for review
+- The validated proposal's `kb_ids` remains in the tool trace and is now also
+  copied into `plan_change_requests.evidence` for the pending-approval console.
+- Keeping both records preserves the detailed trace while making the approval
+  decision self-contained and queryable.
 
 ### 2026-11-11 · Version prompts when structured gates change
 - Grounding and draft prompt versions are bumped when required claims or
@@ -243,3 +243,20 @@ Format: 3–5 lines per decision. Newest at the bottom.
   sentence of every `data/kb/*.md` article — real KB text trips nothing.
   Alternatives rejected: LLM-based promise detection (nondeterministic,
   defeats the purpose), blocking edited human text (overrides human authority).
+
+### 2026-11-12 · Reply approvals bind to a draft snapshot
+- Each reply decision stores the SHA-256 hash of the draft shown to the operator
+  and snapshots the approved text in `approvals.edited_text`.
+- A ticket may therefore be re-run after rejection without reusing an old decision,
+  while execution remains deterministic if the ticket projection changes later.
+
+### 2026-11-12 · Agent runs use fresh checkpoint threads
+- Initial and rerun jobs use `ticket:{id}:run:{number}` and persist that thread on
+  the ticket; resume jobs read the persisted value rather than recomputing it.
+- This prevents step counters and escalation state from leaking across reruns.
+
+### 2026-11-12 · Intake and dashboard limitations
+- Public ticket intake remains intentionally unauthenticated and is recorded as a
+  known rate-limit limitation; the configured shared dashboard token is not identity.
+- Pending approvals expose reply drafts, flags, citations, and action evidence so a
+  human can review the exact proposed customer-visible operation.

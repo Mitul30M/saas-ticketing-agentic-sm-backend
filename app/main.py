@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import db
 from app.api.metrics import router as metrics_router
@@ -28,6 +30,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Nimbus Support Ticket Triage", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def enforce_ticket_body_limit(request: Request, call_next: Any) -> Any:
+    if request.method == "POST" and request.url.path == "/api/tickets":
+        body = await request.body()
+        if len(body) > settings.max_request_bytes:
+            return JSONResponse(status_code=413, content={"detail": "request body too large"})
+    return await call_next(request)
 
 # The separate frontend repo talks to this backend; origins configurable via env.
 app.add_middleware(

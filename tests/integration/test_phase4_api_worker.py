@@ -166,3 +166,58 @@ def test_refund_executor_rolls_back_on_post_update_failure(
         "SELECT count(*) AS n FROM audit_log WHERE entity='refund' AND entity_id=%s "
         "AND event='refund_executed'", (request_id,),
     ).fetchone()["n"] == 0
+
+
+def test_refund_decision_api_executes_once_with_audit(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    ticket_id = str(
+        migrated_conn.execute(
+            "INSERT INTO tickets (customer_id, subject, body, content_hash, from_email) "
+            "VALUES (%s,%s,%s,%s,%s) RETURNING id",
+            (
+                two_customers.alice_id,
+                "ITST API refund approval",
+                "Please refund my invoice.",
+                f"itst-api-refund-{uuid.uuid4().hex}",
+                two_customers.alice_email,
+            ),
+        ).fetchone()["id"]
+    )
+    proposal = build_registry(db_pool).call(
+        "propose_refund",
+        {
+            "ticket_id": ticket_id,
+            "customer_id": str(two_customers.alice_id),
+            "invoice_id": two_customers.inv_a,
+            "amount_cents": 500,
+            "reason": "API approval test",
+            "kb_ids": ["KB-006"],
+            "idempotency_key": f"itst-api-refund-{ticket_id}",
+        },
+        ticket_id=ticket_id,
+        ctx=ToolContext(trace_id=f"api-refund-{ticket_id}", timeout_s=5),
+    )
+    request_id = str(proposal.data["refund_request_id"])
+    before = migrated_conn.execute(
+        "SELECT amount_refunded_cents FROM payments WHERE invoice_id=%s",
+        (two_customers.inv_a,),
+    ).fetchone()["amount_refunded_cents"]
+    first = decide(
+        "refund", request_id, DecisionBody(decision="approve"), None, db_pool,
+        "mia", f"itst-refund-decision-{ticket_id}",
+    )
+    assert decide(
+        "refund", request_id, DecisionBody(decision="approve"), None, db_pool,
+        "mia", f"itst-refund-decision-{ticket_id}",
+    ) == first
+    after = migrated_conn.execute(
+        "SELECT amount_refunded_cents FROM payments WHERE invoice_id=%s",
+        (two_customers.inv_a,),
+    ).fetchone()["amount_refunded_cents"]
+    assert after - before == 500
+    assert migrated_conn.execute(
+        "SELECT count(*) AS n FROM audit_log WHERE entity='refund' AND entity_id=%s "
+        "AND event IN ('refund_decision_recorded','refund_executed')",
+        (request_id,),
+    ).fetchone()["n"] == 2
