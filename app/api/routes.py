@@ -26,11 +26,17 @@ router = APIRouter(prefix="/api")
 
 def _failure(exc: ToolFailure) -> HTTPException:
     code = exc.code.value
-    status = 409 if code in {"duplicate", "business_rule"} else 422
-    return HTTPException(status_code=status, detail=exc.message)
+    status = {
+        "not_found": 404,
+        "duplicate": 409,
+        "business_rule": 409,
+        "internal": 500,
+    }.get(code, 422)
+    headers = {"Retry-After": "1"} if exc.retryable else None
+    return HTTPException(status_code=status, detail=exc.message, headers=headers)
 
 
-@router.post("/tickets", response_model=TicketCreated)
+@router.post("/tickets", response_model=TicketCreated, status_code=201)
 def post_ticket(
     payload: TicketCreate,
     pool: Pool,
@@ -101,9 +107,9 @@ def ticket_detail(ticket_id: UUID, _: Protected, pool: Pool) -> dict[str, Any]:
             "escalation_reason, injection_suspected, flags, handled_by, agent_outcome "
             "FROM tickets WHERE id = %s", (str(ticket_id),)
         ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="ticket not found")
-        actions: list[Any] = conn.execute(
+        if row is None:
+            raise HTTPException(status_code=404, detail="ticket not found")
+        actions = conn.execute(
             "SELECT 'refund' AS kind, id AS ref, status, amount_cents, invoice_id, "
             "evidence, NULL::text AS from_plan_id, NULL::text AS to_plan_id, NULL::text AS effective "
             "FROM refund_requests WHERE ticket_id=%s "
@@ -127,7 +133,7 @@ def ticket_trace(ticket_id: UUID, _: Protected, pool: Pool) -> dict[str, Any]:
     return {"items": rows}
 
 
-@router.post("/tickets/{ticket_id}/run")
+@router.post("/tickets/{ticket_id}/run", status_code=202)
 def rerun_ticket(
     ticket_id: UUID,
     _: Protected,
@@ -205,7 +211,7 @@ def kb_search(
     return {"items": [dict(row) for row in rows]}
 
 
-@router.post("/approvals/{kind}/{ref}/decide", response_model=DecisionAccepted)
+@router.post("/approvals/{kind}/{ref}/decide", response_model=DecisionAccepted, status_code=202)
 def decide(
     kind: str,
     ref: UUID,
@@ -219,6 +225,8 @@ def decide(
         raise HTTPException(status_code=400, detail="Idempotency-Key is required")
     if not operator or not operator.strip():
         raise HTTPException(status_code=400, detail="X-Operator is required")
+    if kind not in {"refund", "plan_change", "send_reply"}:
+        raise HTTPException(status_code=404, detail="unknown approval kind")
     if payload.decision == "edit" and kind != "send_reply":
         raise HTTPException(status_code=422, detail="edit is only valid for send_reply")
     if payload.decision == "edit" and not payload.edited_text:

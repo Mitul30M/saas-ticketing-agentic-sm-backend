@@ -1,3 +1,6 @@
+# Reference prices per 1M tokens (USD), used for the dashboard's shadow cost.
+# "actual" cost stays $0 for stub/local and is computed from these rates for a
+# hosted provider. `reference` names the paid model the shadow price emulates.
 stub:
   input_per_million: 0
   output_per_million: 0
@@ -5,6 +8,7 @@ groq:
   input_per_million: 0
   output_per_million: 0
 reference:
-  label: shadow pricing for a paid reference model
+  model: gpt-4o-mini
+  label: shadow pricing for a paid reference model (not the model actually called)
   input_per_million: 0.15
   output_per_million: 0.60

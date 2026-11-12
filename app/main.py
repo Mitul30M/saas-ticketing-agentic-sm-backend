@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import db
+from app.api.admin import router as admin_router
 from app.api.metrics import router as metrics_router
 from app.api.routes import router
 from app.config import settings
@@ -33,12 +34,33 @@ app = FastAPI(title="Nimbus Support Ticket Triage", lifespan=lifespan)
 
 
 @app.middleware("http")
-async def enforce_ticket_body_limit(request: Request, call_next: Any) -> Any:
-    if request.method == "POST" and request.url.path == "/api/tickets":
-        body = await request.body()
-        if len(body) > settings.max_request_bytes:
-            return JSONResponse(status_code=413, content={"detail": "request body too large"})
+async def enforce_request_body_limit(request: Request, call_next: Any) -> Any:
+    """Reject oversized mutations without buffering them first.
+
+    `Content-Length` is checked before the body is read; a chunked request
+    without the header is buffered and checked as a fallback.
+    """
+    if request.method == "POST" and request.url.path.startswith("/api/"):
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            try:
+                declared_bytes = int(declared)
+            except ValueError:
+                return JSONResponse(
+                    status_code=400, content={"detail": "invalid Content-Length"}
+                )
+            if declared_bytes > settings.max_request_bytes:
+                return JSONResponse(
+                    status_code=413, content={"detail": "request body too large"}
+                )
+        else:
+            body = await request.body()
+            if len(body) > settings.max_request_bytes:
+                return JSONResponse(
+                    status_code=413, content={"detail": "request body too large"}
+                )
     return await call_next(request)
+
 
 # The separate frontend repo talks to this backend; origins configurable via env.
 app.add_middleware(
@@ -51,6 +73,8 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(metrics_router)
+if settings.enable_admin_routes:
+    app.include_router(admin_router)
 
 
 def get_pool() -> db.DictPool:

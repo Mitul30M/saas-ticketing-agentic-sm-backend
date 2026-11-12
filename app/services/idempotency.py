@@ -49,11 +49,18 @@ def execute_once(
             age = (datetime.now(UTC) - existing["created_at"]).total_seconds()
             if age < settings.idempotency_stale_after_s:
                 raise ToolFailure(ToolErrorCode.DUPLICATE, "request is already in progress", True)
-            conn.execute(
+            # Reclaim only if no other request has already done so; a conditional
+            # update keeps two stale reclaimers from running the handler twice.
+            reclaimed = conn.execute(
                 "UPDATE idempotency_keys SET created_at = now(), response_status = NULL, "
-                "response_body = NULL WHERE key = %s AND endpoint = %s",
+                "response_body = NULL, expires_at = now() + interval '24 hours' "
+                "WHERE key = %s AND endpoint = %s AND response_status IS NULL RETURNING key",
                 (key, endpoint),
-            )
+            ).fetchone()
+            if reclaimed is None:
+                raise ToolFailure(
+                    ToolErrorCode.DUPLICATE, "request is already in progress", True
+                )
     try:
         status, response = handler()
     except Exception:

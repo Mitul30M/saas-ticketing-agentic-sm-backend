@@ -1,38 +1,16 @@
 # Phase 4 — API, approval service, idempotency, tracing (Day 3)
 
-## Current implementation status
-
-- P4-1 ticket-state projection, P4-2 idempotency, P4-3 intake/jobs foundations,
-  P4-5 API/auth/CORS routes, and P4-6 cost/metrics tracing are implemented.
-- P4-7 safety acceptance coverage is implemented: database approval bypass,
-  rejection/no-money-movement, concurrent replay, not-in-KB escalation,
-  injection blocking, typed tool failure, and step-limit escalation.
-- Migration `009_plan_change_schedule.sql` adds deferred plan-change fields.
-- The full Phase 4 service/worker DoD is complete: API-worker approval replay,
-  draft-bound reply decisions, refund approval replay, and executor rollback
-  tests are green.
-
-The implementation closure is complete, but the supplemental
-`PHASE4_CLOSURE.md` evidence checklist still has HTTP-level contract coverage
-and a clean-compose curl/psql walkthrough outstanding. Those are intentionally
-not represented as completed here without that evidence.
-
-Verification so far: `make lint` passes, `make test-all` reports 248 passed,
-`make migrate` applies migrations through 011, and the API middleware enforces
-the configured ticket request-size limit. Protected routes fail closed with
-503 when `AGENT_TOKEN` is unset.
-
 > Source: `PLAN.md` Part 7, Phase 4.
 
 ## II. Checklist
 
 - [x] FastAPI app, routers per 4.9; Pydantic request/response models; CORS for web origin; agent-token auth dependency for dashboard routes.
-- [x] Background execution of agent runs (BackgroundTasks or jobs-table worker); status transitions persisted.
-- [x] `services/idempotency.py`: dependency/middleware for `Idempotency-Key` (replay, mismatch→422, concurrency-safe via unique insert).
-- [x] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` → deterministic executor performs refund (updates `payments.amount_refunded_cents`, invoice status) in one transaction; duplicate decisions are no-ops; `send_reply` writes to an `outbox` table (simulated email). ✅ Service and database safety tests pass.
-- [x] `services/tracing.py`: decorators for nodes/tools/LLM calls → `trace_events` with tokens, cost (from `config/pricing.yaml`), cache_hit, duration.
+- [x] Background execution of agent runs via the `jobs` table (worker process, `FOR UPDATE SKIP LOCKED`, stale-lock reclaim, `max_attempts`, `dedupe_key`); status transitions persisted by `services/ticket_state.py`.
+- [x] `services/idempotency.py`: `Idempotency-Key` claim (replay, mismatch→422, in-flight→409+Retry-After, concurrency-safe via unique insert); expiry cleanup on a worker tick.
+- [x] `services/approvals.py` + `services/executor.py`: decide endpoint → lock row → verify `pending_approval` → write `approvals` + `audit_log` → resume graph via `Command(resume=…)` (reply) → deterministic executors for refund/plan-change/reply; duplicate decisions are no-ops; `send_reply` writes to `outbox`.
+- [x] `services/tracing.py`: node/tool/LLM trace rows with tokens, cost (`config/pricing.yaml`), cache_hit, duration.
 - [x] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
-- [x] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change. ✅ `tests/integration/test_phase4_api_worker.py` covers API-worker reply replay and rollback.
+- [x] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change.
 
 ## Definition of Done (verify with commands)
 
@@ -40,10 +18,10 @@ Via `curl` / OpenAPI docs: submit ticket → agent pauses at approval → approv
 
 ## Notes & key facts
 
-- **API surface (PLAN §4.9):** `POST /api/tickets` (Idempotency-Key), `GET /api/tickets` (filters), `GET /api/tickets/{id}`, `GET /api/tickets/{id}/trace`, `POST /api/tickets/{id}/run`, `POST /api/approvals/{action_id}/decide`, `GET /api/approvals/pending`, `GET /api/customers/{id}`, `GET /api/kb/*`, `GET /api/metrics/summary`, dev-only `/api/admin/*`, `GET /healthz`. Changing public API shapes also requires updating the separate frontend repo's types + PLAN §4.9.
+- **API surface (PLAN §4.9):** `POST /api/tickets` (Idempotency-Key), `GET /api/tickets` (filters), `GET /api/tickets/{id}`, `GET /api/tickets/{id}/trace`, `POST /api/tickets/{id}/run`, `POST /api/approvals/{kind}/{ref}/decide`, `GET /api/approvals/pending`, `GET /api/customers/{id}`, `GET /api/kb/*`, `GET /api/metrics/summary`, dev-only `/api/admin/*`, `GET /healthz`. Changing public API shapes also requires updating the separate frontend repo's types + PLAN §4.9.
 - **Idempotency — three layers (PLAN §4.6), the highlight feature:**
-  1. API layer: `Idempotency-Key` table; same key+body → replay stored response; same key+different body → `422`; ticket dedupe is **soft and windowed** — migration 006 dropped the global `tickets.content_hash` UNIQUE (it swallowed legitimate identical follow-ups), intake collapses same `from_email` + `content_hash` within `intake_dedupe_window_minutes` (see P4-3).
-  2. Business layer: `refund_requests` `unique(invoice_id, idempotency_key)`; partial unique index blocks a second *open* refund per invoice; executor `SELECT … FOR UPDATE`, checks `status='approved'` before moving to `executed` in ONE transaction; duplicate approvals are no-ops.
+  1. API layer: `Idempotency-Key` table; same key+body → replay stored response; same key+different body → `422`; ticket dedupe is **soft and windowed** — migration 006 dropped the global `tickets.content_hash` UNIQUE (it swallowed legitimate identical follow-ups), intake collapses same `from_email` + `content_hash` within `intake_dedupe_window_minutes` (advisory-locked, see P4-3).
+  2. Business layer: `refund_requests` `unique(invoice_id, idempotency_key)`; partial unique index blocks a second *open* refund per invoice; executor `SELECT … FOR UPDATE`, checks `status='approved'` before moving to `executed` in ONE transaction; duplicate approvals are no-ops; reply decisions are run-scoped (migration 012).
   3. LLM/cost layer: `llm_cache` sha256(provider|model|params|prompt) → re-running identical inputs costs $0; cache hit-rate reported in cost section.
 - **Only `services/approvals.py` + `services/executor.py` may move rows to `approved`/`executed`**, and only after a recorded human decision. Never a code path where the agent/graph calls the executor directly.
 - Layers: `api/` (HTTP only) → `services/` (business logic) → tools/llm/db helpers; services raise domain exceptions mapped to HTTP codes in `api/`.
@@ -52,11 +30,38 @@ Via `curl` / OpenAPI docs: submit ticket → agent pauses at approval → approv
 
 ## Log & achievements (append)
 
-- 2026-11-12: Added `tests/safety/` AT1–AT5 coverage. Full validation: `make test-all` — 240 passed; `make lint` — ruff and mypy clean.
-- 2026-11-12: Closed the remaining Phase 4 API-worker and rollback gaps. Fixed partial-index conflict targets, JSONB/array projection casts, resume status transitions, and job cleanup. Validation: `make test-all` — 242 passed; `make lint`; `make migrate`.
-- 2026-11-12: Hardened closure paths: reply approvals are draft-hash bound and
-  snapshot their approved text; resume execution is retry-convergent; reruns use
-  fresh checkpoint threads; terminal jobs escalate safely; dashboard projections
-  include flags and evidence; metrics include shadow cost and cache/tool rates.
-  Added migration 010/011 and regression coverage. Validation: `make lint`;
-  `make test-all` — 248 passed; `make migrate`.
+### 2026-11-12 · Implementation review round (evidence + hardening)
+
+**Hardening after review (all covered by tests):**
+- Reply decisions now bind to the **run** (`approvals.run_key`, migration 012), so an
+  identical re-run draft can be decided again; replays after resolution return the
+  recorded decision instead of 409.
+- Stale `running` jobs at `max_attempts` are terminated (ticket parked `awaiting_human`,
+  `JOB_FAILED`, audit row) instead of stuck; `enqueue` reuses done dedupe keys and
+  resets failed ones; `enqueue_rerun` goes through the status guard (`resolved → triaging`).
+- Idempotency stale-claim reclaim is conditional (no double handler run); the request-size
+  limit checks `Content-Length` before buffering.
+- Deferred plan changes are applied by the worker tick (`apply_due_plan_changes`,
+  `subscriptions.scheduled_plan_change_id`); admin routes are actually mounted behind
+  `ENABLE_ADMIN_ROUTES`; ticket detail returns `flags` + `proposed_actions` (the previous
+  query was unreachable); shadow price names its reference model.
+
+**Test evidence (this round):**
+- New suites: `tests/integration/test_jobs.py` (dedupe, stale claim, terminal failure,
+  rerun guard), `test_idempotency.py` (replay, mismatch, concurrency, claim release,
+  expiry), `test_plan_change.py` (approve/reject, next_cycle scheduling + apply),
+  `test_phase4_resume.py` (executor retry sends once, run-scoped drafts, replay key).
+- Rewritten `tests/integration/test_api_http.py`: auth matrix over every dashboard route,
+  header ordering, edit/approve validation on a real draft, 413 (Content-Length and
+  chunked), replay 5× → one ticket, full submit → approve → one outbox row, metrics.
+- `tests/safety/test_phase4_safety.py`: AT2–AT5 now run through the real
+  API/job/graph path (escalation parked, injection flagged and unable to write, tool
+  ownership failure traced, step limit persisted).
+- `make test-all`: **282 passed**; `make lint`: clean.
+
+**Clean-compose walkthrough:** recorded in `docs/DECISIONS.md` / this log after running
+`docker compose down -v` + `AGENT_TOKEN=… docker compose up -d --build`, `make seed`,
+`make ingest-kb`, then curl + psql. Stub mode cannot choose the refund branch (its triage
+is fixed to `invoice_question`); the refund approval is therefore demonstrated via the
+`propose_refund` tool call (the agent's own proposal path) followed by the HTTP decide
+endpoint, and the reply path is demonstrated end-to-end from ticket submission.

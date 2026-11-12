@@ -99,23 +99,29 @@ def record_reply_decision(
         raise ToolFailure(ToolErrorCode.INVALID_INPUT, "decided_by is required")
     with pool.connection() as conn, conn.transaction():
         ticket = conn.execute(
-            "SELECT id, status, draft_reply FROM tickets WHERE id = %s FOR UPDATE",
+            "SELECT id, status, draft_reply, thread_id FROM tickets WHERE id = %s FOR UPDATE",
             (ticket_id,),
         ).fetchone()
         if ticket is None:
             raise ToolFailure(ToolErrorCode.NOT_FOUND, "ticket not found")
-        if ticket["status"] != "awaiting_approval" or not ticket["draft_reply"]:
+        draft = ticket["draft_reply"]
+        if not draft:
             raise ToolFailure(
                 ToolErrorCode.BUSINESS_RULE,
                 "ticket is not waiting for a reply approval",
             )
-        draft = str(ticket["draft_reply"])
-        draft_hash = hashlib.sha256(draft.encode("utf-8")).hexdigest()
+        draft_text = str(draft)
+        draft_hash = hashlib.sha256(draft_text.encode("utf-8")).hexdigest()
+        # The decision belongs to the run that produced this draft: a re-run
+        # that happens to produce identical text is a NEW decision, not a
+        # duplicate; a replay within the same run stays idempotent.
+        run_key = str(ticket["thread_id"] or f"ticket:{ticket_id}")
         existing = conn.execute(
             "SELECT id, decision FROM approvals "
             "WHERE action_type = 'send_reply' AND action_ref = %s "
-            "AND draft_hash = %s AND decision IN ('approved', 'rejected') FOR UPDATE",
-            (ticket_id, draft_hash),
+            "AND run_key = %s AND draft_hash = %s "
+            "AND decision IN ('approved', 'rejected') FOR UPDATE",
+            (ticket_id, run_key, draft_hash),
         ).fetchone()
         if existing is not None:
             if existing["decision"] != decision:
@@ -123,19 +129,31 @@ def record_reply_decision(
                     ToolErrorCode.DUPLICATE,
                     "a final decision already exists for this draft",
                 )
+            # Idempotent replay: the decision (and the ticket) may already have
+            # moved on, but the recorded human decision is still the answer.
             return str(existing["id"])
-        snapshot = edited_text if decision == "approved" and edited_text else draft
+        if ticket["status"] != "awaiting_approval":
+            raise ToolFailure(
+                ToolErrorCode.BUSINESS_RULE,
+                "ticket is not waiting for a reply approval",
+            )
+        snapshot = edited_text if decision == "approved" and edited_text else draft_text
         row = conn.execute(
             "INSERT INTO approvals "
-            "(ticket_id, action_type, action_ref, draft_hash, decision, edited_text, decided_by, note) "
-            "VALUES (%s, 'send_reply', %s, %s, %s, %s, %s, %s) RETURNING id",
-            (ticket_id, ticket_id, draft_hash, decision, snapshot, decided_by[:200], note),
+            "(ticket_id, action_type, action_ref, run_key, draft_hash, decision, "
+            " edited_text, decided_by, note) "
+            "VALUES (%s, 'send_reply', %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (
+                ticket_id, ticket_id, run_key, draft_hash, decision, snapshot,
+                decided_by[:200], note,
+            ),
         ).fetchone()
         if row is None:
             raise ToolFailure(ToolErrorCode.INTERNAL, "approval decision returned no row")
         conn.execute(
             "INSERT INTO audit_log (actor, event, entity, entity_id, payload) "
             "VALUES (%s, 'reply_decision_recorded', 'ticket', %s, %s)",
-            (decided_by[:200], ticket_id, Json({"decision": decision, "draft_hash": draft_hash})),
+            (decided_by[:200], ticket_id, Json({"decision": decision, "draft_hash": draft_hash,
+                                                "run_key": run_key})),
         )
         return str(row["id"])

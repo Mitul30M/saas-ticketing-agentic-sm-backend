@@ -42,7 +42,7 @@ services:
 
   worker:
     build: .
-    command: ["uv", "run", "python", "-m", "app.worker"]
+    command: ["/srv/.venv/bin/python", "-m", "app.worker"]
     environment:
       DATABASE_URL: postgresql://nimbus:nimbus@db:5432/nimbus
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}

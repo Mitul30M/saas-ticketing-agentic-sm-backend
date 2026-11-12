@@ -91,8 +91,8 @@ def execute_plan_change(pool: Any, *, request_id: str, approved_by: str) -> str:
         else:
             conn.execute(
                 "UPDATE subscriptions SET scheduled_plan_id=%s, scheduled_effective_at="
-                "COALESCE(current_period_end, now()) WHERE id=%s",
-                (request["to_plan_id"], current["id"]),
+                "COALESCE(current_period_end, now()), scheduled_plan_change_id=%s WHERE id=%s",
+                (request["to_plan_id"], request_id, current["id"]),
             )
         conn.execute(
             "UPDATE plan_change_requests SET status='executed', executed_at=now() WHERE id=%s",
@@ -103,6 +103,43 @@ def execute_plan_change(pool: Any, *, request_id: str, approved_by: str) -> str:
             "'plan_change',%s,%s)", (approved_by, request_id, Json({"effective": request["effective"]})),
         )
     return str(request_id)
+
+
+def apply_due_plan_changes(pool: Any) -> int:
+    """Apply scheduled plan changes whose effective time has arrived.
+
+    Called from the worker tick (not from the graph). Each subscription is
+    locked and cleared in the same transaction, so a replayed tick applies
+    once and writes exactly one audit row. Returns the number applied.
+    """
+    with pool.connection() as conn, conn.transaction():
+        due = conn.execute(
+            "SELECT id, customer_id, scheduled_plan_id, scheduled_plan_change_id "
+            "FROM subscriptions WHERE scheduled_plan_id IS NOT NULL "
+            "AND scheduled_effective_at IS NOT NULL AND scheduled_effective_at <= now() "
+            "FOR UPDATE SKIP LOCKED"
+        ).fetchall()
+        for row in due:
+            conn.execute(
+                "UPDATE subscriptions SET plan_id=%s, scheduled_plan_id=NULL, "
+                "scheduled_effective_at=NULL, scheduled_plan_change_id=NULL WHERE id=%s",
+                (row["scheduled_plan_id"], row["id"]),
+            )
+            conn.execute(
+                "UPDATE customers SET plan_id=%s WHERE id=%s",
+                (row["scheduled_plan_id"], row["customer_id"]),
+            )
+            conn.execute(
+                "INSERT INTO audit_log (actor,event,entity,entity_id,payload) "
+                "VALUES ('worker','plan_change_scheduled_applied','plan_change',%s,%s)",
+                (
+                    str(row["scheduled_plan_change_id"])
+                    if row["scheduled_plan_change_id"] else None,
+                    Json({"subscription_id": str(row["id"]),
+                          "to_plan_id": row["scheduled_plan_id"]}),
+                ),
+            )
+    return len(due)
 
 
 def execute_approved_reply(

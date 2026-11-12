@@ -69,6 +69,7 @@ def summary(_: Protected, pool: Pool) -> dict[str, Any]:
             **dict(trace),
             "actual_cost_usd": float(trace["cost_usd"]),
             "shadow_cost_usd": shadow_cost,
+            "shadow_price_model": reference.get("model", "unnamed reference model"),
             "llm_cache_hit_rate": (
                 float(cache["hits"]) / float(cache["calls"]) if cache["calls"] else 0.0
             ),

@@ -14,21 +14,24 @@ from app.agent.checkpointer import make_checkpointer
 from app.agent.graph import build_graph
 from app.config import settings
 from app.db import create_pool
+from app.llm.base import LLMClient
 from app.services import jobs
-from app.services.executor import execute_approved_reply
+from app.services.executor import apply_due_plan_changes, execute_approved_reply
 from app.services.ticket_state import apply_run_result, mark_resolved
 
 logger = logging.getLogger(__name__)
 
 
-def run_one(pool: Any, worker_id: str | None = None) -> bool:
+def run_one(
+    pool: Any, worker_id: str | None = None, client: LLMClient | None = None
+) -> bool:
     job = jobs.claim(pool, worker_id or f"worker-{os.getpid()}")
     if job is None:
         return False
     ticket_id = str(job["ticket_id"])
     saver = make_checkpointer(settings.database_url)
     try:
-        graph = build_graph(pool, checkpointer=saver)
+        graph = build_graph(pool, client=client, checkpointer=saver)
         payload = json.loads(job["payload"]) if isinstance(job["payload"], str) else job["payload"]
         with pool.connection() as conn:
             ticket = conn.execute(
@@ -75,7 +78,12 @@ def run_loop(pool: Any) -> None:
     while True:
         if time.monotonic() - last_cleanup >= 300:
             from app.services.idempotency import cleanup
-            cleanup(pool)
+
+            try:
+                cleanup(pool)
+                apply_due_plan_changes(pool)
+            except Exception:  # keep the worker alive; the error is logged
+                logger.exception("periodic maintenance failed")
             last_cleanup = time.monotonic()
         if not run_one(pool):
             time.sleep(1)

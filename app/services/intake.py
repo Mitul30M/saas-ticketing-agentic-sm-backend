@@ -23,6 +23,11 @@ def create_ticket(pool: Any, payload: dict[str, Any]) -> dict[str, Any]:
         raise ToolFailure(ToolErrorCode.INVALID_INPUT, "invalid from_email")
     content_hash = hashlib.sha256(body.encode()).hexdigest()
     with pool.connection() as conn, conn.transaction():
+        # Two concurrent identical submissions must collapse to one ticket; the
+        # soft windowed check is not unique, so serialise it per sender+body.
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))", (f"{email}|{content_hash}",)
+        )
         duplicate = conn.execute(
             "SELECT id FROM tickets WHERE lower(from_email) = %s AND content_hash = %s "
             "AND received_at >= now() - make_interval(mins => %s) "

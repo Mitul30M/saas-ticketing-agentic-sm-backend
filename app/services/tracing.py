@@ -14,7 +14,7 @@ PRICING_FILE = Path(__file__).resolve().parents[2] / "config" / "pricing.yaml"
 
 
 @lru_cache(maxsize=1)
-def pricing() -> dict[str, dict[str, float]]:
+def pricing() -> dict[str, Any]:
     data = yaml.safe_load(PRICING_FILE.read_text(encoding="utf-8"))
     return data if isinstance(data, dict) else {}
 

@@ -260,3 +260,50 @@ Format: 3–5 lines per decision. Newest at the bottom.
   known rate-limit limitation; the configured shared dashboard token is not identity.
 - Pending approvals expose reply drafts, flags, citations, and action evidence so a
   human can review the exact proposed customer-visible operation.
+
+### 2026-11-12 · Reply decisions are run-scoped, not draft-only
+- Migration 012 adds `approvals.run_key` (the ticket's checkpoint thread) and
+  replaces the draft-only unique index with `(action_type, action_ref, run_key,
+  draft_hash)`. A re-run that produces identical text (the LLM cache makes it
+  likely) is a NEW decision; a replay inside one run stays idempotent.
+- `record_reply_decision` checks for an existing decision before requiring
+  `awaiting_approval`, so replaying the same decision after the ticket resolved
+  returns the recorded approval instead of a spurious 409. A *different*
+  decision for the same draft is still DUPLICATE.
+- Rejected alternative: hashing draft+thread into one string (opaque in audit
+  queries); keep the two components separate.
+
+### 2026-11-12 · Job queue failure and replay semantics
+- `enqueue` returns the existing job for a done dedupe key (a decision replay
+  after the resume job finished must not 409) and resets a *failed* job to
+  queued so an operator retry can progress.
+- `claim` reclaims running rows past `job_lock_timeout_s`; if such a row is
+  already at `max_attempts` it is failed terminally (ticket → `awaiting_human`,
+  `escalation_reason=JOB_FAILED`, audit row) instead of staying `running` forever.
+- `enqueue_rerun` moves the ticket through the guarded state machine
+  (`resolved → triaging` is an explicit operator re-run edge), never a raw UPDATE.
+- Idempotency stale-claim reclamation is a conditional UPDATE (`... RETURNING`),
+  so two stale reclaimers cannot both run the handler.
+
+### 2026-11-12 · Deferred plan changes need a worker tick
+- `execute_plan_change` records `subscriptions.scheduled_plan_change_id`
+  (migration 012) when `effective=next_cycle`; the worker applies due rows with
+  `FOR UPDATE SKIP LOCKED`, clears the schedule, and audits once.
+- Rejected alternative: mark the request `approved` until the period ends — the
+  database trigger only allows `approved → executed`, and a half-applied state
+  would confuse the dashboard.
+- The shadow price names its reference model (`config/pricing.yaml` →
+  `reference.model`), surfaced as `shadow_price_model` in `/api/metrics/summary`.
+
+### 2026-11-12 · HTTP boundary details
+- `POST /api/tickets` is customer-facing and stays unauthenticated by design;
+  dashboard routes require the shared bearer token and fail closed (503) when it
+  is unconfigured. Mutation routes return 202 (`tickets` intake returns 201).
+- The request-size limit checks `Content-Length` before buffering and only
+  buffers when the header is absent (chunked), for every `POST /api/*`.
+- Admin seed/ingest/load routes are mounted only with `ENABLE_ADMIN_ROUTES=true`
+  and call the same functions as the Makefile targets.
+- Test-coverage note: the initial Phase 4 commit's DECISIONS wording implied
+  A2–A4 regression coverage that did not exist; this round adds the HTTP matrix,
+  job/idempotency/resume/plan-change suites, and worker-level AT2–AT5.
+
