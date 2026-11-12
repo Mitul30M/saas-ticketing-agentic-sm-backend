@@ -18,6 +18,7 @@ services:
 
   api:
     build: .
+    image: nimbus-backend:latest
     ports:
       - "8000:8000"
     volumes:
@@ -44,6 +45,7 @@ services:
 
   worker:
     build: .
+    image: nimbus-backend:latest
     command: ["/srv/.venv/bin/python", "-m", "app.worker"]
     volumes:
       - hf_cache:/root/.cache/huggingface

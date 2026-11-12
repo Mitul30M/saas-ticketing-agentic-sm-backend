@@ -23,6 +23,9 @@ dependencies = [
     "pyyaml>=6.0",
     "faker>=30.0",
     "sentence-transformers>=3.0",
+    # Declared directly so the CPU-only index below applies to the Linux
+    # resolution; on macOS PyPI's wheel is already CPU-only.
+    "torch>=2.2",
 ]
 
 [dependency-groups]
@@ -59,3 +62,14 @@ markers = ["integration: hits the compose Postgres; skips without TEST_DATABASE_
 
 [tool.uv]
 package = false
+
+# CPU-only torch inside Linux images: the default PyPI wheels pull ~2.5 GB of
+# CUDA libraries that this app never uses (embeddings run on CPU). macOS PyPI
+# wheels are already CPU-only, hence the linux marker. See docs/DECISIONS.md.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

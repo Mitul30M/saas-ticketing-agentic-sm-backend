@@ -40,7 +40,7 @@ def _row(conn: Any, ticket: str) -> dict[str, Any]:
 def test_interrupt_projects_an_approval_pause(
     db_pool: Any, migrated_conn: Any, two_customers: Any
 ) -> None:
-    ticket = _ticket(migrated_conn, two_customers)
+    ticket = _ticket(migrated_conn, two_customers, status="triaging")
     result = {
         "ticket_id": ticket,
         "thread_id": f"ticket:{ticket}",

@@ -469,17 +469,22 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - [x] `services/tracing.py`: cost calculation from `config/pricing.yaml`; LLM traces now populate cost and cache-hit fields.
 - [x] `/api/metrics/summary` and `/api/tickets/{id}/trace`.
 - [x] Integration tests: replay same POST 5× → 1 ticket; two concurrent approvals → exactly one execution; approve → refund executed once; reject → no data change. ✅ API-worker reply approval replay and executor rollback coverage pass.
-- [x] **DoD:** via API route/worker integration: submit ticket → agent pauses at approval → approve → approved reply is written once; refund approval executes once with decision/execution audit rows; refund rollback leaves payment/request/audit state unchanged on failure. ✅ `make test-all` — 248 passed; `make lint`; `make migrate` through 011.
+- [x] **DoD:** clean compose (`down -v` → `up -d --build` → `make seed` → `make ingest-kb`) then curl/psql: submit → agent pauses at approval → approve → exactly one `outbox` row + `reply_executed` audit; refund proposal → approve → `amount_refunded_cents` +500 once, invoice `partially_refunded`, 3 audit rows; both replays idempotent. Transcript in `plans/phase-4-plan.md`; manual runbook in `docs/VERIFY.md`. ✅ `make test-all` — 288 passed; `make lint` clean.
 
 #### Supplemental Phase 4 closure evidence
 - [x] Draft-bound reply approvals, fresh rerun threads, convergent resume execution,
   terminal job escalation, UUID/token validation, dashboard evidence, request-size
   enforcement, and shadow-cost metrics are implemented and covered by the current
   database-backed suite.
-- [ ] HTTP-level `TestClient` auth/validation/idempotency matrix from
-  `PHASE4_CLOSURE.md` C1.
-- [ ] Clean-compose `curl` + `psql` walkthrough with captured output from
-  `PHASE4_CLOSURE.md` D2.
+- [x] HTTP-level `TestClient` auth/validation/idempotency matrix from
+  `PHASE4_CLOSURE.md` C1 — rewritten `tests/integration/test_api_http.py` covers
+  every dashboard route (503/401), header ordering, real-draft edit/approve rules,
+  413 (Content-Length + chunked), replay 5× → one ticket, `/run` reopen, the full
+  submit → approve → one-outbox flow, metrics, and admin-off-by-default.
+- [x] Clean-compose `curl` + `psql` walkthrough with captured output from
+  `PHASE4_CLOSURE.md` D2 — executed and recorded in `plans/phase-4-plan.md`
+  (reply path + refund path, replays idempotent); reproducible commands in
+  `docs/VERIFY.md`.
 
 ### Phase 5 — Frontend (Day 3–4) — ⚠ separate frontend repo, out of scope for this backend repo
 

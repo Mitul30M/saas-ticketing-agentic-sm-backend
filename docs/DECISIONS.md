@@ -307,6 +307,20 @@ Format: 3–5 lines per decision. Newest at the bottom.
   A2–A4 regression coverage that did not exist; this round adds the HTTP matrix,
   job/idempotency/resume/plan-change suites, and worker-level AT2–AT5.
 
+### 2026-11-12 · CPU-only torch in the Linux image
+- `sentence-transformers` (needed for KB retrieval embeddings, NOT for the LLM)
+  pulls PyPI's CUDA torch on Linux: the API image was 19 GB and every rebuild
+  re-downloaded ~2 GB of `nvidia-*` wheels. Embeddings run on CPU, so the Linux
+  resolution now uses `https://download.pytorch.org/whl/cpu` (`torch = 2.15.0+cpu`,
+  zero `nvidia-*` packages); macOS keeps the PyPI wheel, which is CPU-only anyway
+  (platform marker on the uv source).
+- `torch` is declared as a direct dependency so `[tool.uv.sources]` applies to the
+  transitive requirement; without it, uv locks the default CUDA build.
+- Rejected: switching to `fastembed`/ONNX (changes retrieval code and requires
+  re-ingest), and uninstalling `nvidia-*` after sync (breaks `uv sync` reproducibility).
+- `api` and `worker` now share one image tag (`nimbus-backend:latest`) instead of
+  building two identical multi-GB images from the same Dockerfile.
+
 ### 2026-11-12 · Clean-compose walkthrough findings
 - The first ticket in a fresh container escalated: `kb_search` exceeded the 8 s
   tool timeout while the worker cold-loaded the embedding model. Fail-closed and

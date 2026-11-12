@@ -91,4 +91,7 @@ invoice `INV-0050-M1` (2000¢ refundable).
   `mark_resolved` clears them. Covered by `tests/integration/test_ticket_state.py`.
 - **Deployment note:** warm the embedding model (or raise `TOOL_TIMEOUT_S`) before the first live
   ticket; the `hf_cache` volume in compose makes it a one-time cost.
+- **Manual verification:** `docs/VERIFY.md` has every command to reproduce tests, CLI graph runs,
+  the API happy path and each edge case (auth, idempotency, size limit, injection, not-in-KB,
+  refund/plan-change, re-run conflicts, scripted-LLM cases).
 
