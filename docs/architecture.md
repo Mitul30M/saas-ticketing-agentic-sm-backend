@@ -20,20 +20,19 @@ graph TD;
 	draft_reply(draft_reply)
 	propose_actions(propose_actions)
 	approval_gate(approval_gate)
-	execute_approved(execute_approved)
+	record_decision(record_decision)
 	escalate(escalate)
 	failure_handler(failure_handler)
 	finalize(finalize)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> intake_validate;
 	approval_gate -.-> escalate;
-	approval_gate -.-> execute_approved;
 	approval_gate -.-> failure_handler;
+	approval_gate -.-> record_decision;
 	draft_reply -.-> escalate;
 	draft_reply -.-> failure_handler;
 	draft_reply -.-> propose_actions;
 	escalate --> finalize;
-	execute_approved --> finalize;
 	failure_handler --> escalate;
 	grounding_check -.-> draft_reply;
 	grounding_check -.-> escalate;
@@ -48,10 +47,13 @@ graph TD;
 	propose_actions -.-> approval_gate;
 	propose_actions -.-> escalate;
 	propose_actions -.-> failure_handler;
+	record_decision --> finalize;
 	retrieve -.-> escalate;
 	retrieve -.-> failure_handler;
 	retrieve -.-> grounding_check;
-	tool_executor --> retrieve;
+	tool_executor -.-> escalate;
+	tool_executor -.-> failure_handler;
+	tool_executor -.-> retrieve;
 	triage -.-> escalate;
 	triage -.-> failure_handler;
 	triage -.-> plan;

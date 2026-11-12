@@ -21,6 +21,7 @@ from psycopg.types.json import Json
 
 from app.config import settings
 from app.retrieval.hybrid import hybrid_search
+from app.retrieval.rerank import maybe_rerank
 from app.tools.registry import ToolFailure
 from app.tools.schemas import (
     CustomerResourceInput,
@@ -156,16 +157,24 @@ def propose_refund(pool: Any, args: RefundProposalInput) -> dict[str, Any]:
     """Insert a PENDING refund request. Never approves, never executes."""
     sender = _require_sender(pool, str(args.ticket_id), str(args.customer_id))
     with pool.connection() as conn:
+        # Aggregate instead of a JOIN so an owned invoice WITHOUT a succeeded
+        # payment is distinguishable from a foreign invoice, and several
+        # payments take the newest paid_at without ORDER BY surprises.
         invoice = conn.execute(
             "SELECT i.id, i.amount_cents, i.status, i.issued_at, "
-            "p.paid_at FROM invoices i "
-            "JOIN payments p ON p.invoice_id = i.id AND p.status = 'succeeded' "
-            "WHERE i.id = %s AND i.customer_id = %s",
+            "max(p.paid_at) AS paid_at FROM invoices i "
+            "LEFT JOIN payments p ON p.invoice_id = i.id AND p.status = 'succeeded' "
+            "WHERE i.id = %s AND i.customer_id = %s "
+            "GROUP BY i.id, i.amount_cents, i.status, i.issued_at",
             (args.invoice_id, sender),
         ).fetchone()
         if invoice is None:
             raise ToolFailure(
                 ToolErrorCode.OWNERSHIP_MISMATCH, "invoice not found for this customer"
+            )
+        if invoice["paid_at"] is None:
+            raise ToolFailure(
+                ToolErrorCode.BUSINESS_RULE, "refund requires a succeeded payment"
             )
         if invoice["status"] not in ("paid", "partially_refunded"):
             raise ToolFailure(
@@ -260,9 +269,11 @@ def get_subscription(pool: Any, args: CustomerResourceInput) -> dict[str, Any]:
 
 
 def kb_search(pool: Any, args: KBSearchInput) -> dict[str, Any]:
-    """Hybrid FTS + vector retrieval over the knowledge base."""
+    """Hybrid FTS + vector retrieval over the knowledge base, optional
+    cross-encoder rerank (RETRIEVAL_RERANK_MODEL, off by default)."""
     with pool.connection() as conn:
         chunks = hybrid_search(conn, args.query, args.limit)
+    chunks = maybe_rerank(args.query, chunks, settings.rerank_model)
     return {"results": [chunk.to_dict() for chunk in chunks]}
 
 

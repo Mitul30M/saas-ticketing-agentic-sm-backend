@@ -18,14 +18,32 @@ from app.agent.resilience import call_llm
 from app.agent.state import AgentState
 from app.llm.base import LLMClient
 
-PROMPT_VERSION = "draft_v2"
+PROMPT_VERSION = "draft_v3"
 _PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / f"{PROMPT_VERSION}.txt"
 
 CITATION_RE = re.compile(r"\[(KB-[A-Za-z0-9_-]+)\]")
 
+MAX_REPLY_CHARS = 4000
+
+# Deterministic promise-denial: a draft may never claim a refund, plan change
+# or account action has been or will be carried out — those need a recorded
+# human approval (AGENTS invariant 1). Prompt-only rules are not enough; the
+# check below rejects such drafts before the approval gate sees them.
+PROMISE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"refund\b[^.?!]*\b(has been|will be|is being)\b", re.IGNORECASE),
+    re.compile(r"\b(your|the)\s+refund\s+(is|has been)\s+(approved|processed|issued|on its way)", re.IGNORECASE),
+    re.compile(r"\b(i|we)( have|'ve)?\s+(issued|processed|sent|approved)\s+(your|the|a)\s+refund", re.IGNORECASE),
+    re.compile(r"\b(plan|subscription|account)\b[^.?!]*\b(has been|will be|is being)\s+(changed|upgraded|downgraded|cancelled|canceled|switched)", re.IGNORECASE),
+    re.compile(r"\b(i|we)( have|'ve| will|'ll)?\s+(upgraded|downgraded|changed|cancelled|canceled|switched)\s+your\s+(plan|subscription|account)", re.IGNORECASE),
+)
+
+
+def rejects_promise_language(reply: str) -> bool:
+    return any(pattern.search(reply) for pattern in PROMISE_PATTERNS)
+
 
 class DraftOutput(BaseModel):
-    reply: str = Field(min_length=1, max_length=4000)
+    reply: str = Field(min_length=1, max_length=MAX_REPLY_CHARS)
     citations: list[str] = Field(default_factory=list)
 
     @classmethod
@@ -112,6 +130,21 @@ def make_draft_node(pool: Any, client: LLMClient):
                 ),
                 "step_count": next_step(state),
             }
+        if rejects_promise_language(output.reply):
+            # the model tried to promise a refund/plan/account action: those
+            # need a recorded human approval, so the draft never reaches the gate
+            trace_node(
+                pool, ticket_id, trace_id, "draft_reply", "decision",
+                {"prompt_version": PROMPT_VERSION},
+                {"accepted": False, "reason_code": "DRAFT_PROMISE_DENIED"},
+            )
+            return {
+                **escalation_update(
+                    "DRAFT_REJECTED",
+                    "draft promised a refund, plan change or account action; rejected",
+                ),
+                "step_count": next_step(state),
+            }
 
         trace_node(
             pool, ticket_id, trace_id, "draft_reply", "llm",
@@ -121,6 +154,15 @@ def make_draft_node(pool: Any, client: LLMClient):
             tokens_in=response.usage.input_tokens, tokens_out=response.usage.output_tokens,
             cache_hit=response.cache_hit,
         )
+        # Persist the approved-for-gate draft so the dashboard and the approval
+        # API can show exactly what the human decided on, without reading the
+        # LangGraph checkpoint. The executor later sends either this text or
+        # the approval's edited_text — never a caller-supplied body.
+        with pool.connection() as conn:
+            conn.execute(
+                "UPDATE tickets SET draft_reply = %s WHERE id = %s",
+                (output.reply, ticket_id),
+            )
         return {
             "draft": output.reply,
             "citations": citations,

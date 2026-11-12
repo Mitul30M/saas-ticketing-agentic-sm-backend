@@ -6,7 +6,7 @@ executes an action; all customer-visible and data-changing work remains behind
 the human approval and service-layer executor boundary.
 
 Wiring: intake_validate -> injection_screen -> triage -> retrieve ->
-grounding_check -> draft_reply -> approval_gate (interrupt) -> execute_approved
+grounding_check -> draft_reply -> approval_gate (interrupt) -> record_decision
 -> finalize; any failure/abstention routes to escalate -> finalize.
 
 Bounded execution: explicit step_count guard in every LLM/tool node
@@ -18,7 +18,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.nodes.approval import make_approval_gate_node, make_execute_node
+from app.agent.nodes.approval import make_approval_gate_node, make_record_decision_node
 from app.agent.nodes.common import safe_node
 from app.agent.nodes.draft import make_draft_node
 from app.agent.nodes.escalate import make_escalate_node, make_finalize_node
@@ -51,7 +51,7 @@ def _after_approval(state: AgentState) -> str:
     if state.get("failure"):
         return "failure_handler"
     approval = state.get("approval") or {}
-    return "execute_approved" if approval.get("approved") else "escalate"
+    return "record_decision" if approval.get("approved") else "escalate"
 
 
 def build_graph(
@@ -87,8 +87,8 @@ def build_graph(
     )
     builder.add_node("approval_gate",
                      safe_node("approval_gate", pool, make_approval_gate_node()))
-    builder.add_node("execute_approved",
-                     safe_node("execute_approved", pool, make_execute_node(pool)))
+    builder.add_node("record_decision",
+                     safe_node("record_decision", pool, make_record_decision_node(pool)))
     builder.add_node("escalate", safe_node("escalate", pool, make_escalate_node(registry)))
     builder.add_node(
         "failure_handler", safe_node("failure_handler", pool, make_failure_handler_node())
@@ -119,8 +119,8 @@ def build_graph(
         "propose_actions", _routed("approval_gate"), ["approval_gate", "escalate", "failure_handler"])
     builder.add_conditional_edges(
         "approval_gate", _after_approval,
-        ["execute_approved", "escalate", "failure_handler"])
-    builder.add_edge("execute_approved", "finalize")
+        ["record_decision", "escalate", "failure_handler"])
+    builder.add_edge("record_decision", "finalize")
     builder.add_edge("escalate", "finalize")
     builder.add_edge("failure_handler", "escalate")
     builder.add_edge("finalize", END)

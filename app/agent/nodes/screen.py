@@ -14,7 +14,8 @@ from app.agent.state import AgentState
 # Static patterns; the matched TEXT is never stored, only the flag name.
 _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("instruction_override", re.compile(
-        r"ignore (?:all )?(?:previous|prior|above|earlier) (?:instructions|rules|prompts|directions)",
+        r"ignore (?:all |any |your |my )?(?:previous |prior |above |earlier |current )?"
+        r"(?:instructions|rules|prompts|directions)",
         re.IGNORECASE)),
     ("instruction_override", re.compile(
         r"disregard (?:all )?(?:previous|prior|above|your) (?:instructions|rules|prompts)",

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # Embeddings: local open model, no paid API needed.
     embed_model: str = "BAAI/bge-small-en-v1.5"
-    # Cross-encoder rerank: OFF unless a model name is configured (PLAN 4.4).
+    # Cross-encoder rerank: OFF unless RETRIEVAL_RERANK_MODEL is set (PLAN 4.4).
     rerank_model: str = ""
 
     # Agent guards / business rules — never hard-code these in code.

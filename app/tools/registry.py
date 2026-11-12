@@ -124,13 +124,19 @@ class ToolRegistry:
     ) -> None:
         duration_ms = int((perf_counter() - started) * 1000)
         error_code = result.error.code.value if result.error else None
+        if isinstance(args, dict):
+            traced_args: Any = args
+        elif isinstance(args, BaseModel):
+            traced_args = args.model_dump(mode="json")  # keep proposal evidence queryable
+        else:
+            traced_args = {"raw": str(args)}
         try:
             self._tracer(
                 ticket_id=ticket_id,
                 trace_id=ctx.trace_id,
                 node=name,
                 kind="tool",
-                input_=args if isinstance(args, dict) else {"raw": str(args)},
+                input_=traced_args,
                 output=result.data if result.ok else None,
                 status="ok" if result.ok else "error",
                 error=error_code,

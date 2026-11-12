@@ -454,6 +454,12 @@ These close gaps found in review (Part 10). Do them before writing the KB, becau
 - [x] Approval boundary hardening: graph resume is proposal-only; `services/approvals.py`
   records the human decision and `services/executor.py` locks, re-verifies, audits, and
   replay-safely writes approved replies to `outbox`. ✅ 121 tests passing.
+- [x] Phase 3 closure (PHASE3_CLOSURE.md P3-1…P3-7): strict resume-payload parsing
+  (`parse_decision`), approval-service + executor integration tests, proposal checks on
+  Postgres (refund/plan-change/integration failures), no-side-effects AST + helper tests,
+  draft promise-language deny gate (draft_v3) + rerank wiring + FTS OR fix,
+  scripted support-verdict/injection tests, dev-set threshold evidence table in
+  `docs/DECISIONS.md`. ✅ `make lint` clean; `make test-all` — 204 passed.
 
 ### Phase 4 — API, approval service, idempotency, tracing (Day 3)
 - [ ] FastAPI app, routers per 4.9; Pydantic request/response models; CORS for web origin; agent-token auth dependency for dashboard routes.

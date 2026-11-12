@@ -163,3 +163,59 @@ Format: 3–5 lines per decision. Newest at the bottom.
   citations change.
 - This invalidates old LLM cache entries whose structured output may satisfy
   previous schema semantics but fail the current deterministic gates.
+
+### 2026-11-12 · P3-1/P3-2: strict decision parsing; executor derives the sent text
+- The interrupt resume value authorizes ONLY when it parses as
+  `{approved: True (literal), decided_by: non-blank str}`; anything else
+  (`"true"`, `1`, missing decided_by) is a recorded rejection with
+  `decided_by="invalid_resume_payload"` — fail closed (P3-1).
+- `execute_approved_reply` no longer accepts a `body` argument: the sent text
+  is the approval's `edited_text` when the human edited, else
+  `tickets.draft_reply` (persisted by the draft node before the gate). The
+  text that is sent must be the text the human saw — a caller-supplied body
+  could diverge silently (P3-2).
+
+### 2026-11-12 · P3-5: the graph gate approves the REPLY only
+- When the agent also proposes a refund/plan change, the interrupt payload
+  labels the approval `kind: send_reply` vs the action; a rejected draft does
+  NOT auto-reject the pending proposal. Refund/plan-change decisions get
+  their own approvals rows (`action_type='refund'|'plan_change'`) and their
+  own executor path in Phase 4 — the dashboard shows proposals separately.
+- Rationale: one gate approving two things at once is how a UI shows one
+  thing and approves another. Rejected proposals stay visible for a human
+  instead of disappearing.
+
+### 2026-11-12 · FTS channel: OR-combine sanitized tokens
+- `websearch_to_tsquery` defaults to AND, so a full natural sentence ("How
+  does the refund policy work?") matched NOTHING and hybrid retrieval
+  degenerated to vector-only. `fts_search` now OR-combines `[A-Za-z0-9_]+`
+  tokens (still bind parameters), restoring recall for real ticket language.
+- Score gate unchanged (grounding_threshold 0.02): single-channel rank-1 is
+  1/(60+1)≈0.0164 (fails), two-channel agreement ≥~0.03 (passes). Real
+  calibration happens on data/dev only (AGENTS §6).
+
+### 2026-11-12 · Amount/plan parsers are pure and ambiguous→escalate
+- `parse_amount_cents` / `parse_target_plan` (orchestration.py) raise
+  ValueError on ambiguity ("$50 and $75", "from Pro to Starter, not
+  Business"); the node converts that into NEEDS_HUMAN_JUDGEMENT. Directional
+  from/to readings decide only when they account for every mentioned plan.
+- `propose_refund` now returns BUSINESS_RULE (not OWNERSHIP_MISMATCH) for an
+  owned invoice without a succeeded payment, via LEFT JOIN + max(paid_at).
+
+### 2026-11-12 · Grounding threshold evidence (P3-6 #4), run against data/dev
+- All 20 `data/dev/dev_tickets.jsonl` tickets pass the retrieval gate after
+  the OR-FTS fix; before it, AND-semantics full-text search left several
+  (security incident, feature request, fax/invoice topics) vector-only and
+  below threshold. Best RRF scores per ticket (top-5, k=60):
+  C-0001 0.0323 · C-0003 0.0323/0.0323 · C-0004 0.0320 · C-0077 0.0325/0.0318/0.0325 ·
+  C-0003(login) 0.0323 · C-0007 0.0328 · C-0011 0.0328 · C-0015 0.0325 · C-0019 0.0323 ·
+  C-0023 0.0325 · C-0027 0.0323 · C-0031 0.0325 · C-0035 0.0309 · C-0039 0.0320 ·
+  C-0043 0.0320 · C-0047 0.0310 · C-0051 0.0315 · C-0055 0.0320.
+- Negative control: gibberish text best_rrf=0.0164 (vector-only, single
+  channel) — below the 0.02 gate. Observed operating band: two-channel
+  agreement ≥~0.030, single-channel ≤~0.0164.
+- Decision: keep `grounding_threshold=0.02`. The score gate separates
+  "retrieval agreed" from "one channel happened to rank something"; whether
+  the retrieved chunks ANSWER the ticket is the support check's job (P3-6
+  scripted-verdict tests pin those paths). Final calibration stays on
+  data/dev only, frozen before the eval run (AGENTS §6).

@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from app.agent.nodes.common import escalation_update, step_guard
-from app.agent.nodes.draft import CitationError, validate_citations
+from app.agent.nodes.draft import CitationError, rejects_promise_language, validate_citations
 from app.agent.nodes.grounding import resolve_recency_conflict
 from app.config import settings
 
@@ -28,8 +28,38 @@ def test_validate_citations_rejects_invented_claimed_citation() -> None:
         validate_citations("No inline markers.", ["KB-999"], RETRIEVED)
 
 
-def test_validate_citations_allows_uncited_draft() -> None:
+def test_validate_citations_passes_uncited_draft_but_the_draft_node_rejects_it() -> None:
+    """The pure validator accepts an empty citation set (it gates citABILITY);
+    the draft NODE additionally rejects any draft whose citation union is
+    empty (make_draft_node: `if not citations: raise CitationError`). This
+    test pins the validator half of that split."""
     assert validate_citations("A reply with no citations at all.", [], RETRIEVED) == []
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Good news: your refund has been approved and will arrive soon [KB-006].",
+        "We have issued your refund of $50 [KB-006].",
+        "Your plan will be upgraded to Business right away [KB-011].",
+        "I have upgraded your plan to Business [KB-011].",
+        "Your subscription has been cancelled as requested [KB-009].",
+    ],
+)
+def test_promise_language_is_denied(reply: str) -> None:
+    assert rejects_promise_language(reply) is True
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Refunds follow the 30-day window described in the policy [KB-006].",
+        "You can request a plan change from the billing page; it needs approval [KB-011].",
+        "To cancel, contact support through the dashboard [KB-009].",
+    ],
+)
+def test_policy_explanations_are_not_promise_language(reply: str) -> None:
+    assert rejects_promise_language(reply) is False
 
 
 def test_escalation_update_carries_reason_and_queue() -> None:

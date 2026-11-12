@@ -11,13 +11,55 @@ from app.tools.registry import ToolRegistry
 from app.tools.schemas import ToolContext
 
 INVOICE_RE = re.compile(r"\bINV-\d{4,8}-[A-Z0-9]+\b", re.IGNORECASE)
-AMOUNT_RE = re.compile(r"\$(\d+(?:\.\d{1,2})?)")
+AMOUNT_RE = re.compile(r"\$\s?([\d,]+(?:\.\d{1,2})?)")
+PLAN_WORD_RE = re.compile(r"\b(free|starter|pro|business)\b", re.IGNORECASE)
+_FROM_TO_RE = re.compile(
+    r"\bfrom\s+(free|starter|pro|business)\s+to\s+(free|starter|pro|business)\b",
+    re.IGNORECASE,
+)
+_TO_FROM_RE = re.compile(
+    r"\bto\s+(free|starter|pro|business)\s+from\s+(free|starter|pro|business)\b",
+    re.IGNORECASE,
+)
 PLAN_IDS = {
     "free": "PLAN-FREE",
     "starter": "PLAN-STARTER",
     "pro": "PLAN-PRO",
     "business": "PLAN-BUSINESS",
 }
+
+
+def parse_amount_cents(text: str) -> int:
+    """The refund amount the customer asked for, in cents.
+
+    Accepts thousands separators. Several DISTINCT amounts in one ticket are
+    ambiguous -> ValueError (escalated, never guessed). Repeating the same
+    amount is fine."""
+    values = {
+        round(float(match.group(1).replace(",", "")) * 100)
+        for match in AMOUNT_RE.finditer(text)
+    }
+    if not values or len(values) > 1:
+        raise ValueError("no single unambiguous dollar amount in the ticket")
+    return values.pop()
+
+
+def parse_target_plan(text: str) -> str:
+    """The plan the customer asked to move TO.
+
+    One mentioned plan decides; with several, only a directional from/to
+    reading decides, and only when it accounts for every mentioned plan —
+    "from Pro to Starter, not Business" stays ambiguous."""
+    mentioned = {match.group(1).lower() for match in PLAN_WORD_RE.finditer(text)}
+    if len(mentioned) == 1:
+        return PLAN_IDS[mentioned.pop()]
+    to_from = _TO_FROM_RE.search(text)
+    if to_from and mentioned <= {to_from.group(1).lower(), to_from.group(2).lower()}:
+        return PLAN_IDS[to_from.group(1).lower()]
+    from_to = _FROM_TO_RE.search(text)
+    if from_to and mentioned <= {from_to.group(1).lower(), from_to.group(2).lower()}:
+        return PLAN_IDS[from_to.group(2).lower()]
+    raise ValueError("no unambiguous target plan in the ticket")
 
 
 def make_plan_node():
@@ -91,11 +133,19 @@ def make_tool_executor_node(registry: ToolRegistry):
                 for payment in data.get("payments", [])
                 if payment.get("status") == "succeeded"
             )
-            amount_match = AMOUNT_RE.search(text)
-            amount_cents = (
-                round(float(amount_match.group(1)) * 100)
-                if amount_match else paid - refunded
-            )
+            matches = list(AMOUNT_RE.finditer(text))
+            if len(matches) == 1:
+                amount_cents = parse_amount_cents(text)
+            elif not matches:
+                amount_cents = paid - refunded  # no stated amount -> full remainder
+            else:
+                return {
+                    "outcome": "escalated",
+                    "escalation": {
+                        "reason_code": "NEEDS_HUMAN_JUDGEMENT",
+                        "detail": "several distinct dollar amounts in the ticket",
+                    },
+                }
             return {
                 "action_context": {
                     "kind": "refund", "customer_id": customer_id,
@@ -116,14 +166,9 @@ def make_tool_executor_node(registry: ToolRegistry):
                     "detail": "subscription lookup failed before proposing a plan change",
                 },
             }
-        plan_matches = [
-            (match.start(), PLAN_IDS[match.group(1).lower()])
-            for match in re.finditer(
-                r"\b(free|starter|pro|business)\b", text, flags=re.IGNORECASE
-            )
-        ]
-        target = max(plan_matches, default=(0, None))[1]
-        if target is None:
+        try:
+            target = parse_target_plan(text)
+        except ValueError:
             return {
                 "outcome": "escalated",
                 "escalation": {

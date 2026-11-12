@@ -16,16 +16,19 @@ def execute_approved_reply(
     ticket_id: str,
     approval_id: str,
     approved_by: str,
-    body: str,
 ) -> str:
     """Write one approved reply to the simulated outbox.
 
     The approval row is locked and re-verified in the same transaction. A
     replay returns the existing outbox id without sending twice.
+
+    The sent text is derived, never caller-supplied: the approval's
+    edited_text when the human edited the draft, else the draft the agent
+    persisted in tickets.draft_reply (the text the human saw in the gate).
     """
     with pool.connection() as conn, conn.transaction():
             approval = conn.execute(
-                "SELECT id, action_type, action_ref, decision, decided_by "
+                "SELECT id, action_type, action_ref, decision, decided_by, edited_text "
                 "FROM approvals WHERE id = %s FOR UPDATE",
                 (approval_id,),
             ).fetchone()
@@ -40,6 +43,17 @@ def execute_approved_reply(
                 raise ToolFailure(
                     ToolErrorCode.BUSINESS_RULE,
                     "approval does not authorize this reply",
+                )
+            body = approval["edited_text"]
+            if body is None:
+                ticket = conn.execute(
+                    "SELECT draft_reply FROM tickets WHERE id = %s FOR UPDATE",
+                    (ticket_id,),
+                ).fetchone()
+                body = ticket["draft_reply"] if ticket else None
+            if not body:
+                raise ToolFailure(
+                    ToolErrorCode.INTERNAL, "no approved reply text available"
                 )
             existing = conn.execute(
                 "SELECT id FROM outbox WHERE approval_id = %s FOR UPDATE",

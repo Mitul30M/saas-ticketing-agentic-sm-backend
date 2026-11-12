@@ -68,3 +68,16 @@ still never executes refunds, plan changes, or replies.
   five Phase 3 scenarios plus checkpoint resume with `make test-all`
   (`124 passed`). Versioned grounding and draft prompts to invalidate stale
   cached structured responses after tightening non-empty claim/citation gates.
+- 2026-11-12: Phase 3 closure per `PHASE3_CLOSURE.md` (P3-1…P3-7).
+  P3-1 strict resume parsing (`parse_decision` in `nodes/approval.py`).
+  P3-2 approval-service + executor integration tests (idempotency, flip
+  rejection, concurrency, replay). P3-3 refund/plan-change proposal checks
+  verified on Postgres (amount caps, window boundary, duplicates, ownership).
+  P3-4 `record_decision` rename + AST no-side-effect test + helper assertions.
+  P3-5 reply-only gate recorded in `docs/DECISIONS.md`. P3-6 draft_v3
+  promise-language deny gate (`rejects_promise_language`), rerank wiring,
+  FTS OR fix, scripted support-verdict tests (unsupported / conflicting /
+  invented claim kb_id), injection+refund acceptance test, dev-set
+  threshold evidence table in `docs/DECISIONS.md`. P3-7 `make lint` clean;
+  `make test-all` — 204 passed. Phase 3 closed; Phase 4 (jobs worker,
+  idempotency, decide endpoint, executor resume) is next.
