@@ -522,3 +522,28 @@ Format: 3–5 lines per decision. Newest at the bottom.
   exactly the eval tickets and nothing else. That turned a 135k-token re-run into a 10k resume.
 - `eval.report` picked the newest `*.json`, which after `make eval-ablation` is the ablation file,
   so `make eval` failed on its own report step. It now skips files that are not run results.
+
+### 2026-11-13 · Phase 6: the dev split finally has triage gold
+- `data/dev/` only carried `kb_covered`, so every triage prompt change (`triage_v1 → v2 → v3`) had
+  to be judged on the eval split — the tuning AGENTS §6 forbids. The source dataset's
+  `topic`/`priority_hint`/`queue_hint` cannot substitute: they are exactly the noisy hints §6 bars
+  from the label path (and on this split they disagree with the hand label in 5 of 24 rows).
+- `data/dev/dev_triage_gold.jsonl` adds hand-reviewed category/priority/sentiment for all 24 dev
+  rows (queue derived), and `scripts/dev_triage_report.py` (`make dev-triage`) runs the **real**
+  prompt against them and reports accuracy, macro-F1, priority-within-one and per-row misses.
+- The script refuses to run while any label is unreviewed, and `eval/review.py --dev-triage`
+  manages the flags with the same workflow as the eval set. Two splits, one guide, no borrowed
+  labels.
+
+### 2026-11-13 · Phase 6: first dev triage baseline (triage_v3)
+- `make dev-triage` on the 24 hand-labelled dev rows, gpt-oss-120b: category **0.917** (macro-F1
+  0.863), priority **0.583** exact / **0.958** within-one, sentiment **0.708** (macro-F1 0.492).
+- The two category misses (D-04, D-05) are both rows I flagged as arguable, and the model chose
+  `plan_change` — the source dataset's own `topic` value. That is a label-vs-model disagreement on
+  genuinely ambiguous text, not a model failure, and it is a reason to keep the rows and document
+  them rather than relabel to make the number nicer.
+- Sentiment recovering to 0.708 confirms the F13 revert: the capture's 0.415 was caused by the
+  clause `triage_v3` removed.
+- Priority remains the weak field, so the next prompt change (`triage_v4`, negative urgency
+  examples) is tested here first. This is the first triage baseline that did not come from the eval
+  split.

@@ -1,4 +1,4 @@
-.PHONY: up down migrate seed ingest-kb load-tickets test eval lint fmt app-local
+.PHONY: up down migrate seed ingest-kb load-tickets test eval lint fmt app-local dev-triage
 
 # docker compose up -d (db + api)
 up:
@@ -51,6 +51,9 @@ eval-ablation:
 
 grounding-report:
 	uv run python -m scripts.grounding_report
+
+dev-triage:
+	uv run python -m scripts.dev_triage_report --pause-seconds 6
 
 lint:
 	uv run ruff check app tests scripts eval db

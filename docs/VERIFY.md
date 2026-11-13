@@ -67,6 +67,74 @@ open -a OrbStack
 cp -n .env.example .env     # then edit AGENT_TOKEN=... (never commit .env)
 ```
 
+### 0.1 Run the app on Groq instead of the stub
+
+The stub is deterministic and free; Groq runs the real model. Three env vars change, nothing else
+in this runbook does. `.env` is read by `docker compose` **and** by `uv run` on the host, and it is
+gitignored — never commit the key.
+
+```bash
+# .env (repo root)
+LLM_PROVIDER=groq
+LLM_API_KEY=gsk_...                 # from console.groq.com
+LLM_MODEL=openai/gpt-oss-120b       # a model the key can actually call
+```
+
+Compose only reads `.env` when a container is created, so recreate the two services:
+
+```bash
+AGENT_TOKEN=demo-token docker compose up -d --build api worker
+docker compose exec api env | grep -E "LLM_PROVIDER|LLM_MODEL"   # expect groq / gpt-oss-120b
+```
+
+Host mode instead:
+
+```bash
+docker compose up -d db
+make migrate && make seed && make ingest-kb
+AGENT_TOKEN=demo-token make app-local          # terminal 1: API on :8000
+uv run python -m app.worker                    # terminal 2: worker
+```
+
+Prove it is the model and not the stub (the stub records **0 tokens**). Re-source the shared shell
+block at the top of this file first if you are in a new terminal — `$PSQL`/`$AUTH` come from there:
+
+```bash
+TID=$($PSQL -At -c "SELECT id FROM tickets WHERE from_email IS NOT NULL ORDER BY received_at DESC LIMIT 1")
+$PSQL -c "SELECT node, kind, tokens_in, tokens_out, cost_usd, cache_hit
+          FROM trace_events WHERE ticket_id='$TID' AND kind='llm' ORDER BY id;"
+# groq: tokens_in/tokens_out > 0 (cost_usd is 0 on the free tier)
+curl -sS -H "$AUTH" $API/api/metrics/summary \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["trace"])'
+```
+
+Switching back is the same edit with `LLM_PROVIDER=stub` plus the recreate; the key can stay.
+
+**Quota is the trap.** Measured free-tier limits: **200k tokens/day** and **8k tokens/minute**, per
+model. A full eval is ~127k tokens (one run per day), and a burst of tickets will 429 — the failure
+appears as `INTERNAL_ERROR` on whichever node was in flight, and `trace_events.error` carries the
+provider's own message. For demos submit a handful of tickets, not a load test: one ticket costs
+~2–3 LLM calls.
+
+**Tests never use Groq.** `tests/conftest.py` pins `settings.llm_provider = "stub"` for the session,
+so `make test-all` stays deterministic and free whatever `.env` says.
+
+**What changes in the walkthrough on Groq** — the expected *outputs* in §5, §6.5 and §6.6 were
+recorded with the stub, so read these differences before you conclude something is broken:
+
+| Area | Stub (the transcripts below) | Groq |
+|---|---|---|
+| triage labels | always `invoice_question` / `medium` / `neutral` | real labels; they vary a little run to run |
+| draft text | `"Stub response: …"` | real sentences with `[KB-xxx]` citations |
+| abstention | never (it always drafts) | ~4 in 5 answerable tickets draft; the rest escalate `LOW_CONFIDENCE`, which is the **safe** path |
+| `wait_for … awaiting_approval` | always reached | can time out on a ticket the model abstained on — check for `awaiting_human` / `LOW_CONFIDENCE` before assuming a failure |
+| refund / plan-change branches | only via the `propose_*` tools (§6.8/§6.9) | the model can choose them from a ticket that asks |
+| trace | `tokens_in=0`, `cost_usd=0` | `tokens_in/out > 0` (~2–3 calls per ticket), `cost_usd` still 0 on the free tier |
+| speed | milliseconds | ~3–7 s per ticket end to end |
+
+If a Groq demo needs to be deterministic (a live walkthrough), run it on the stub and use the eval
+for model numbers: the stub exercises the same gate, executor and database constraints.
+
 ---
 
 ## 1. Start, seed and reset the stack
@@ -161,17 +229,21 @@ uv run pytest tests/integration/test_api_http.py -q -s          # -s shows print
 Restart the worker after the suite: `AGENT_TOKEN=demo-token docker compose up -d worker`.
 
 ```bash
-# Evaluation + grounding evidence (dev set only; never tune on eval labels).
-make grounding-report      # writes eval/results/grounding_dev.csv (the only real number today)
-make eval                  # NOT IMPLEMENTED: prints what the Phase 6 harness still needs
+# Evaluation + grounding evidence (see §12 for the full workflow and where files are written).
+make grounding-report      # dev split, support check: eval/results/grounding_dev.csv
+make dev-triage            # dev split, triage accuracy: eval/results/triage_dev.csv
+make eval                  # replay the captured real-model run (no API key)
+make eval-live             # fresh real-model capture, paced; needs LLM_API_KEY
+make eval-stub             # plumbing only: deterministic stub, ~1 min
+make eval-ablation         # retrieval ablation + tau sweep (dev only)
 ```
 
 ---
 
-## 3. Drive the agent graph from the CLI (stub mode, no HTTP)
+## 3. Drive the agent graph from the CLI (no HTTP)
 
-`app/agent/run.py` runs the real graph with the configured LLM provider (`stub` by default) and
-prints the final state + trace. Use it to watch the gate without the API.
+`app/agent/run.py` runs the real graph with the configured LLM provider (`stub` by default,
+`groq` when §0.1 is applied) and prints the final state + trace. Use it to watch the gate without the API.
 
 ```bash
 # Pick a ticket id. The CLI uses its OWN checkpoint thread (`ticket:<id>`), so a
@@ -213,9 +285,12 @@ $PSQL -c "SELECT node, kind, status, error, duration_ms, tokens_in, tokens_out, 
           FROM trace_events WHERE ticket_id::text = '$TID' ORDER BY id;"
 ```
 
-> Stub mode is plumbing/CI only (AGENTS §6). Its triage is fixed to `invoice_question`, so the
-> refund/plan-change branches are exercised with scripted LLMs in `tests/integration/test_agent_graph.py`
-> and with the `propose_*` tools in §6.8/§6.9 — not by pretending the stub chose them.
+> Stub mode is plumbing/CI only (AGENTS §6). Its triage is fixed to `invoice_question`, so with the
+> stub the refund/plan-change branches are exercised with scripted LLMs in
+> `tests/integration/test_agent_graph.py` and with the `propose_*` tools in §6.8/§6.9 — not by
+> pretending the stub chose them. With `LLM_PROVIDER=groq` the model chooses the category itself, so
+> the refund/plan-change branches are reachable directly; keep the tool-based demos when you want a
+> deterministic path.
 >
 > **If the run stops immediately with `BAD_TICKET` / "missing body text or a transport sender"**, you
 > picked the seeded unknown-sender ticket: use the filtered query above. That path is correct
@@ -518,7 +593,8 @@ $PSQL -At -c "SELECT 'outbox='||count(*) FROM outbox WHERE ticket_id='$UTID';"
 ### 6.8 Refund: propose with the agent's tool, then approve over HTTP
 
 Stub triage cannot choose `refund_request`, so the proposal is made with the same tool the agent
-uses — the approval/execution path is fully real. The refund idempotency key is **server-derived**
+uses — the approval/execution path is fully real. (On Groq the agent can reach this branch by itself
+from a ticket that asks for money; this block stays the deterministic way to demo it.) The refund idempotency key is **server-derived**
 (`srv-…`), never the caller's value.
 
 ```bash
@@ -870,12 +946,17 @@ SQL
 | §6.9 proposes "customer is already on the target plan" | A previous run moved that customer to PLAN-PRO; pick another starter customer or reset. |
 | Tests hang after adding cases | The compose worker is stealing test jobs; `docker compose stop worker` before `make test-all`. |
 | `psql: connection refused` | Use the host port `5433` (compose maps `5433:5432`). |
+| Groq returns `429 ... tokens per day (TPD)` | The free tier is 200k tokens/day **per model**; one full eval is ~127k, and failed retries spend the same budget. Wait for the reset, or run the eval on another model (each model has its own budget) — the report always names the model it used. |
+| Groq returns `429 ... tokens per minute (TPM)` | 8k tokens/minute. Submit fewer tickets at once; for eval use `make eval-live` (paces at 6k/min). Pacing cannot help once the daily budget is gone. |
+| Drafts look canned and `trace_events` shows `tokens_in=0` | You are on the stub. Set `LLM_PROVIDER=groq` and recreate `api`/`worker` (§0.1); compose does not pick up `.env` changes without a recreate. |
+| `make eval` says *"captured with different prompts (triage triage_v2 -> triage_v3)"* | A prompt changed since the capture, so the replay keys no longer match. Run `make eval-live` to re-capture (commit the new `eval/replay_cache.json`), or check out the commit named in the cache meta to reproduce the old table. |
 
 ---
 
 ## 11. What "working" looks like (one-screen summary)
 
-1. `make test-all` — 290 passed, 0 failed (integration must not be skipped).
+1. `make test-all` — 334 passed, 0 failed (integration must not be skipped; it must not be skipped
+   *silently* either — check the count, not just the exit code).
 2. `make lint` — ruff + mypy clean.
 3. Submit a policy question → `awaiting_approval` with a grounded draft and `[KB-xxx]` citations.
 4. Approve → exactly one `outbox` row, ticket `resolved`, `reply_executed` audit row; replay is a no-op.
@@ -883,6 +964,9 @@ SQL
 6. Injection → flagged (`injection_suspected`, `instruction_override`), zero writes, still human-gated.
 7. Unknown topic → `awaiting_human`, no draft, no outbox.
 8. Refund propose → approve → money moves once; reject/duplicate → nothing moves; DB triggers block bypass.
+9. On Groq (§0.1): `trace_events.kind='llm'` shows non-zero `tokens_in/tokens_out`, and
+   `GET /api/metrics/summary` reports the same token totals. Stub mode reports 0 and is not a
+   measure of answer quality.
 
 ---
 
@@ -926,9 +1010,42 @@ minute**. So:
 ```bash
 uv run python -m eval.run_eval --llm groq --tpm 6000 --write-replay   # ~16 min, 43 tickets, ~127k tokens
 uv run python -m eval.run_eval --llm groq --limit 3                   # quick sanity, ~3k tokens
-``` A run with any internally failed ticket is **not publishable**: the runner exits 1
-and refuses `--write-replay`, because replaying a failed run would reproduce the failures. Use
+```
+
+A run with any internally failed ticket is **not publishable**: the runner exits 1 and refuses
+`--write-replay`, because replaying a failed run would reproduce the failures. Use
 `--allow-failures` only when you are debugging one ticket.
+
+If the drain hits its timeout, the work is not lost: `--resume` keeps the completed tickets and runs
+only the rest (it re-queues interrupted jobs through `enqueue_rerun`, so the retried ticket gets a
+fresh checkpointer thread rather than resuming a half-written one).
+
+```bash
+# after a timeout: keep the database, run only what did not finish, still capture
+uv run python -m eval.run_eval --llm groq --resume --reuse-db --tpm 6000 --write-replay
+```
+
+### Where the recorded results are written
+
+`eval/results/` is **gitignored** ("regenerable via `make eval`"), so the numbers are reproduced, not
+committed as stale data. The one committed artefact is the capture itself.
+
+| Path | Written by | Tracked? | Contents |
+|---|---|---|---|
+| `eval/results/<date>-<hhmm>-groq.json` | `make eval-live` | no | manifest (model, commit, dataset hash, prompt versions, AS_OF, safety counters) + one record per ticket: gold, actual, trace summary |
+| `eval/results/<date>-<hhmm>-groq.md` | `eval.report` | no | the same as a markdown table |
+| `eval/results/<date>-<hhmm>-replay.json/.md` | `make eval` | no | the reproduced table (decisions and tokens identical; latency/cache-hit marked n/a) |
+| `eval/replay_cache.json` | `--write-replay` | **yes** | the captured LLM responses `make eval` serves, plus the model/prompts/commit that produced them |
+| `eval/results/retrieval_ablation.{json,md}` | `make eval-ablation` | no | hit@1/3/5 + MRR per retriever, and the dev-only tau sweep |
+| `eval/results/grounding_dev.csv` | `make grounding-report` | no | per-dev-ticket support verdict (`supported`, `reason`, `best_rrf`) |
+| `eval/results/triage_dev.csv` | `make dev-triage` | no | dev triage gold vs actual per ticket, plus the prompt version |
+| `data/eval/eval_set.jsonl` | reviewed by hand | **yes** | the 43 gold-labelled tickets |
+| `data/dev/dev_triage_gold.jsonl` | reviewed by hand | **yes** | triage gold for the 24 dev rows (category/priority/sentiment) |
+| `docs/FAILURE_ANALYSIS.md` | written from the run records | **yes** | F1–F14 with trace excerpts |
+| `docs/EVAL_RESULTS.md` | `eval.metrics.render_markdown` + provenance | **yes** | the published table as committed evidence, with the caveats that make it readable |
+
+To get the published table back at any time: `make eval` (needs `eval/replay_cache.json`). To see the
+raw per-ticket records again: `make eval` then open the newest `eval/results/*-replay.json`.
 
 Review flags are reviewer state, not generated data:
 

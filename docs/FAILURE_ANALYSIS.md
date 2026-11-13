@@ -254,8 +254,13 @@ money back." The clause generalised: a calm complaint about a double charge or a
 still `negative`, but the model applied "polite ⇒ neutral" to everything. Nothing was wrong with
 the model; the instruction was too broad.
 **Fix:** `triage_v3` removes that sentence and keeps the category/priority examples, which are
-what actually moved category accuracy (0.902 → 0.976) and priority (0.585 → 0.829). Sentiment
-needs a recapture to confirm the recovery.
+what actually moved category accuracy (0.902 → 0.976) and priority (0.585 → 0.829).
+
+**Confirmed on dev** (`make dev-triage`, 24 hand-labelled rows, `triage_v3`, gpt-oss-120b):
+sentiment **0.708** (macro-F1 0.49), up from the 0.415 the capture measured with the bad clause and
+in line with the 0.71 the model had before it. The recovery is real, on the split where tuning is
+allowed. The remaining sentiment error is the old neutral/negative boundary (4 polite requests read
+as complaints), which is label subtlety more than a model defect.
 
 ## F14 — Generic advice answered a "not in KB" row (open, label policy)
 
@@ -271,6 +276,31 @@ product pair* or *no usable guidance at all*. The guide currently says the forme
 in the guide) or require the support check to cite a chunk that names the product. The second is
 a real prompt rule, and it would also remove the last false answer in the capture. Decide before
 the next capture; do not leave the label and the metric disagreeing.
+## F15 — Priority is the weakest triage field, and "urgent" is over-applied (open)
+
+**Tickets:** 10 of 24 dev rows; `D-12` is the worst (my `low` → model `urgent`, a 3-level miss).
+**Expected:** the rubric in the prompt ("urgent is ONLY an active outage or an active security
+incident; high for money at risk").
+**Actual (dev, `triage_v3`):** exact **0.583**, within-one **0.958**. The capture measured 0.829
+exact / 1.0 within-one on the eval set, so dev is the harder read — which is exactly why it is the
+useful one.
+
+Misses, grouped:
+
+- **Over-escalated to `urgent`** on outages that were already mitigated or described as occasional
+  (`D-12 low→urgent`, `D-13 high→urgent`, `D-14 high→urgent`). The category word "outage" appears to
+  drive urgency more than the sentence "we have restarted the service and are monitoring".
+- **Money-at-risk rows read as `high` instead of `medium`** and vice versa (`D-01`, `D-11` up;
+  `D-10`, `D-15`, `D-16` down). Both directions of ±1 on rows where the amount of money at stake is
+  itself a judgement call.
+
+**Root cause (hypothesis):** the rubric states the positive cases but never the negative ones — it
+never says *an outage that is already mitigated is not urgent* or *an informational billing question
+is not high*. `triage_v2` added examples for category but not for priority boundaries.
+**Status:** open. Proposed `triage_v4` with two negative examples (mitigated/occasional outage ⇒
+high or medium, not urgent; informational billing question ⇒ medium, not high), measured with
+`make dev-triage` **before** any recapture. Do not ship it on the strength of the eval split.
+
 ---
 
 ## Method notes
@@ -286,10 +316,18 @@ the next capture; do not leave the label and the metric disagreeing.
 AGENTS §6 says prompts and τ are tuned on `data/dev/` only. Two of the fixes above break that rule
 in a narrow, disclosed way:
 
-- **F1** (`support_v3`) and **F9** (`draft_v4`) were driven by schema failures observed while
-  running the eval set. They are robustness fixes — the model could not produce a parsable object
-  at all — not quality tuning against the gold labels, and the labels were still under review at
-  the time.
+- **F1** (`support_v3`), **F9** (`draft_v4`), **F13/`triage_v2`** and **`triage_v3`** were driven by
+  failures observed while running the eval set. F1/F9 are robustness fixes — the model could not
+  produce a parsable object at all — not quality tuning against the gold labels, and the labels were
+  still under review at the time. The triage prompts are a weaker case: `triage_v2` added boundary
+  and priority examples *because* invoice questions were misclassified on eval (E-020), which is
+  eval-derived tuning by any honest reading.
+- **The dev split cannot validate triage at all.** `data/dev/dev_tickets.jsonl` carries
+  `kb_covered` (for retrieval/support) and the source dataset's noisy `topic`/`priority_hint`/
+  `queue_hint`, which AGENTS §6 forbids using as labels or features. There is no gold
+  category/priority/sentiment on dev, so every triage change so far has had to be judged on the eval
+  capture. That is a dataset gap, not a discipline choice; the fix is to hand-label those three
+  fields for the 24 dev rows and re-run triage there before the next prompt change.
 - Everything that *is* tuning was kept on dev: the τ sweep in `make eval-ablation` reads
   `data/dev/dev_tickets.jsonl` only, and no prompt or threshold was selected by comparing eval
   scores.

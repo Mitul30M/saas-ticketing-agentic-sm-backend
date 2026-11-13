@@ -294,6 +294,11 @@ report, never silently absorbed.
 
 ## 15. Review protocol
 
+The same guide governs both splits. `data/eval/eval_set.jsonl` is the report split and
+`data/dev/dev_triage_gold.jsonl` is the tuning split (triage fields only: category, priority,
+sentiment, plus the derived queue). A label in either file is `reviewed` only after a human reads
+it in a review round; both are checked by a contract test.
+
 1. The first pass is drafted by the agent owner (AI-assisted, disclosed in `docs/AI_USAGE.md`).
 2. Rows are reviewed in batches of ~8–10 in one sitting: id, subject, the six gold fields, and a
    one-line rationale.
