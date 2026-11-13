@@ -26,6 +26,7 @@ PROTECTED_GET = [
     "/api/approvals/pending",
     "/api/customers/00000000-0000-0000-0000-000000000000",
     "/api/kb/articles",
+    "/api/kb/articles/KB-001",
     "/api/kb/search?q=refund",
     "/api/metrics/summary",
 ]
@@ -164,11 +165,28 @@ def test_ticket_detail_returns_flags_and_proposed_actions(
     assert body["flags"] == ["injection_suspected"]
     assert body["proposed_actions"][0]["kind"] == "refund"
     assert body["proposed_actions"][0]["ref"] == str(result.data["refund_request_id"])
+    # nothing has been sent yet, so the dashboard has no sent reply to show
+    assert body["sent_reply"] is None
+    # dashboard header fields: who wrote it and when
+    assert body["from_email"] == two_customers.alice_email
+    assert body["received_at"]
 
     with TestClient(app) as client:
         assert client.get(
             f"/api/tickets/{uuid.uuid4()}", headers=AUTH
         ).status_code == 404
+
+
+def test_kb_article_by_id_opens_a_citation(migrated_conn: Any, token: str) -> None:
+    """A [KB-xxx] citation in a draft must be openable by id (Phase 5 requirement)."""
+    with TestClient(app) as client:
+        article = client.get("/api/kb/articles/KB-006", headers=AUTH)
+        unknown = client.get("/api/kb/articles/KB-9999", headers=AUTH)
+    assert article.status_code == 200
+    payload = article.json()
+    assert payload["id"] == "KB-006"
+    assert payload["title"] and payload["body"]
+    assert unknown.status_code == 404
 
 
 def test_decide_edit_rules_on_a_real_reply(
@@ -362,6 +380,12 @@ def test_http_submit_run_decide_approve_flow(
         "SELECT count(*) AS n FROM audit_log WHERE event='reply_executed' AND entity_id=%s",
         (ticket,),
     ).fetchone()["n"] == 1
+
+    # the detail now exposes the message that was actually sent, and who approved it
+    with TestClient(app) as client:
+        detail_after = client.get(f"/api/tickets/{ticket}", headers=AUTH).json()
+    assert detail_after["sent_reply"]["approved_by"] == "mia"
+    assert detail_after["sent_reply"]["body"]
 
     with TestClient(app) as client:
         trace = client.get(f"/api/tickets/{ticket}/trace", headers=AUTH)

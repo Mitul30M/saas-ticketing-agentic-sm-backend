@@ -373,3 +373,16 @@ Format: 3–5 lines per decision. Newest at the bottom.
 
 
 
+
+### 2026-11-13 · Two additive fields the frontend could not work without
+- Phase 5 asks for "draft with clickable KB citations" and an approval panel that
+  shows the decision outcome, but the API exposed neither: `GET /api/kb/articles`
+  returned only `id/title/updated` (no body), and ticket detail had no record of
+  the message that was actually sent (it lives in `outbox`). Both were read-only
+  gaps in the contract, so they were filled additively:
+  `GET /api/kb/articles/{id}` (404 when unknown) and `sent_reply`
+  (`{body, approved_by, delivered_at}` or null) on `GET /api/tickets/{id}`.
+- Rejected: a separate "sent messages" endpoint (another route to keep in sync for
+  one nullable object) and returning the whole article in the citations list
+  (duplicates text the UI already renders from `draft_reply`).
+- Both are additive, so an existing client is unaffected; PLAN §4.9 records them.

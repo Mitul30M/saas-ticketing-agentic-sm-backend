@@ -92,8 +92,9 @@ def list_tickets(
     args.extend([limit, (page - 1) * limit])
     with pool.connection() as conn:
         rows = conn.execute(
-            f"SELECT id, subject, status, queue, category, priority, sentiment, escalated, handled_by "
-            f"FROM tickets {where} ORDER BY received_at DESC LIMIT %s OFFSET %s", args
+            f"SELECT id, subject, status, queue, category, priority, sentiment, escalated, "
+            f"handled_by, received_at FROM tickets {where} ORDER BY received_at DESC "
+            f"LIMIT %s OFFSET %s", args
         ).fetchall()
     return {"items": rows, "page": page, "limit": limit}
 
@@ -104,7 +105,8 @@ def ticket_detail(ticket_id: UUID, _: Protected, pool: Pool) -> dict[str, Any]:
         row = conn.execute(
             "SELECT id, subject, body, status, queue, category, priority, sentiment, "
             "triage_reasons, kb_supported, draft_reply, draft_citations, escalated, "
-            "escalation_reason, injection_suspected, flags, handled_by, agent_outcome "
+            "escalation_reason, injection_suspected, flags, handled_by, agent_outcome, "
+            "received_at, from_email, from_name, customer_id "
             "FROM tickets WHERE id = %s", (str(ticket_id),)
         ).fetchone()
         if row is None:
@@ -117,8 +119,16 @@ def ticket_detail(ticket_id: UUID, _: Protected, pool: Pool) -> dict[str, Any]:
             "to_plan_id, effective FROM plan_change_requests WHERE ticket_id=%s",
             (str(ticket_id), str(ticket_id)),
         ).fetchall()
+        # What was actually sent (possibly an edited draft). Simulated delivery, so
+        # the dashboard can show the message the customer received, not the draft.
+        sent = conn.execute(
+            "SELECT body, approved_by, delivered_at FROM outbox WHERE ticket_id = %s "
+            "ORDER BY delivered_at DESC NULLS LAST, id DESC LIMIT 1",
+            (str(ticket_id),),
+        ).fetchone()
     result = dict(row)
     result["proposed_actions"] = [dict(action) for action in actions]
+    result["sent_reply"] = dict(sent) if sent is not None else None
     return result
 
 
@@ -195,6 +205,19 @@ def kb_articles(_: Protected, pool: Pool, limit: int = Query(default=50, ge=1, l
             "SELECT id, title, updated FROM kb_articles ORDER BY id LIMIT %s", (limit,)
         ).fetchall()
     return {"items": [dict(row) for row in rows]}
+
+
+@router.get("/kb/articles/{kb_id}")
+def kb_article(kb_id: str, _: Protected, pool: Pool) -> dict[str, Any]:
+    """Full article, so a `[KB-xxx]` citation in a draft can be opened."""
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT id, title, category, updated, body FROM kb_articles WHERE id = %s",
+            (kb_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="kb article not found")
+    return dict(row)
 
 
 @router.get("/kb/search")

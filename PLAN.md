@@ -283,12 +283,15 @@ Tests: replay same request 5× → one DB row, identical response; concurrent ap
 POST   /api/tickets                      (Idempotency-Key) create → enqueue agent run
 GET    /api/tickets?status=&queue=&escalated=&q=&page=
 GET    /api/tickets/{id}                 ticket + triage + draft + proposed actions + evidence
+                                         (+ sent_reply from outbox, null until delivered)
 GET    /api/tickets/{id}/trace           trace events
 POST   /api/tickets/{id}/run             (re)run agent (idempotent)
-POST   /api/approvals/{action_id}/decide  {decision: approve|reject|edit, note, edited_text?}
+POST   /api/approvals/{kind}/{ref}/decide  {decision: approve|reject|edit, note, edited_text?}
+                                         kind = refund | plan_change | send_reply;
+                                         ref = refund_requests.id | plan_change_requests.id | ticket_id
 GET    /api/approvals/pending
 GET    /api/customers/{id}               (agent-dashboard use)
-GET    /api/kb/articles | /api/kb/search?q=
+GET    /api/kb/articles | /api/kb/articles/{id} | /api/kb/search?q=
 GET    /api/metrics/summary              counts, escalation rate, avg latency, cost
 POST   /api/admin/seed | /api/admin/ingest-kb | /api/admin/load-tickets   (dev only)
 GET    /healthz
