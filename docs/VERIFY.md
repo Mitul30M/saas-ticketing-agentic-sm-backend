@@ -1,17 +1,122 @@
 # Verification runbook — tests, stub runs, API + edge cases
 
-Everything here runs from the **repo root**. The backend exposes `:8000` (API) and Postgres on
-`:5433` (host port from `docker-compose.yml`). Commands are grouped so you can run one section at a
-time; each block is commented with what it proves.
+Everything here runs from the **repo root**. The backend exposes `:8000` (API), Postgres on
+`:5433` (host port from `docker-compose.yml`), and — when the optional `web` profile is up — the
+Next.js console on `:3000`. Commands are grouped so you can run one section at a time; each block
+is commented with what it proves.
 
 Two ways to run the API:
 
 | Mode | API | Worker | Use when |
 |---|---|---|---|
 | Compose | `docker compose` service `api` | service `worker` | demo / "clean compose" |
+| Compose + console | `--profile web` service `web` (`:3000`) | service `worker` | demo the UI end to end |
 | Host | `make app-local` (`:8000`) | `uv run python -m app.worker` | fast edit/debug loop |
 
 Both need the `db` service (or any Postgres at `TEST_DATABASE_URL`).
+
+## Quick start — Docker (stub or Groq, console optional)
+
+**Which provider will run?** Compose interpolates `.env`, and the fallback in `docker-compose.yml`
+is `stub`:
+
+| What you run | Provider |
+|---|---|
+| `docker compose up` in a clone whose `.env` says `LLM_PROVIDER=groq` | **Groq** (`LLM_MODEL`) |
+| a fresh clone with **no** `.env` | **stub** (deterministic, no key) |
+| `LLM_PROVIDER=stub docker compose up …` | stub — an explicit env var beats `.env` |
+
+Prove which one is live before you demo (stub records **0 tokens**; re-source the shared shell
+block below first if you are in a new terminal — `$PSQL` comes from there):
+
+```bash
+docker compose exec worker env | grep -E "LLM_PROVIDER|LLM_MODEL"
+# after a ticket has run:
+$PSQL -c "SELECT kind, tokens_in, tokens_out FROM trace_events WHERE kind='llm' ORDER BY id DESC LIMIT 3;"
+```
+
+### A. Stub stack — deterministic, no API key (what a reviewer gets)
+
+```bash
+cp -n .env.example .env                       # then leave LLM_PROVIDER unset/stub
+LLM_PROVIDER=stub AGENT_TOKEN=demo-token docker compose up -d --build
+make migrate seed ingest-kb
+curl -sS localhost:8000/healthz              # {"status":"ok"}
+```
+
+Stub trade-off to state when demoing: triage is fixed to `invoice_question` and drafts are canned
+text, so the refund/plan-change branches are **not** reachable from a ticket — the gate still works,
+through reply drafts and escalations.
+
+### B. Groq stack — real triage, real drafts
+
+```bash
+# .env (repo root, gitignored) — compose reads it for interpolation
+LLM_PROVIDER=groq
+LLM_API_KEY=gsk_...                 # console.groq.com
+LLM_MODEL=openai/gpt-oss-120b
+AGENT_TOKEN=demo-token
+
+AGENT_TOKEN=demo-token docker compose up -d --build
+make migrate seed ingest-kb
+```
+
+Free-tier limits and the failure mode are in §0.1 — read the quota paragraph before a live demo.
+
+### C. Full stack including the console (`web` profile)
+
+```bash
+AGENT_TOKEN=demo-token docker compose --profile web up -d --build
+make migrate seed ingest-kb            # one-time data
+open http://localhost:3000             # /submit is public; /dashboard asks for an operator name
+```
+
+- The console image is built from the **sibling repo** `../saas-ticketing-agentic-sm-next-app`; it is
+  behind a profile so a backend-only clone still runs with plain `up` (`make up` is unchanged,
+  `make up-web` is the shortcut).
+- The browser never sees `AGENT_TOKEN`: the container proxies to `http://api:8000` server-side.
+  That also means you do **not** need `CORS_ORIGINS` for the console.
+- If the console repo is absent, only `--profile web` fails; db/api/worker are unaffected.
+
+### D. Switch provider without editing `.env`
+
+```bash
+LLM_PROVIDER=stub docker compose up -d --build api worker
+# back to Groq:
+LLM_PROVIDER=groq LLM_API_KEY=gsk_... LLM_MODEL=openai/gpt-oss-120b \
+  docker compose up -d --build api worker
+```
+
+Compose applies environment only when a container is **created**; `up -d` recreates the service when
+its config changed, which is why the flags are on the `up`, not on a later `restart`.
+
+### What "ground up" actually needs
+
+`docker compose down -v` wipes `pgdata` (and `hf_cache`). Then:
+
+```bash
+AGENT_TOKEN=demo-token docker compose --profile web up -d --build
+make migrate seed ingest-kb
+```
+
+`up` alone is not enough: the API runs **migrations** at boot, but `seed` and `ingest-kb` are
+explicit. Without seed → no customers/invoices → tickets escalate `not_found`; without the KB →
+`LOW_CONFIDENCE` everywhere. The embedding model is baked into the image and re-seeds `hf_cache` on
+first create, so a cold clone does not download it at runtime.
+
+| URL | What |
+|---|---|
+| `http://localhost:8000` | API (`/docs`, `/healthz`) |
+| `http://localhost:3000` | console (only with `--profile web`) |
+| `localhost:5433` | Postgres (`nimbus`/`nimbus`, db `nimbus`) |
+
+### Settings compose does **not** forward
+
+These fall back to the code defaults in the containers even if you set them in `.env`:
+`AS_OF`, `LLM_TIMEOUT_S`, `LLM_MAX_CALLS`, `EMBED_MODEL`, `INTAKE_DEDUPE_WINDOW_MINUTES`,
+`MAX_REQUEST_BYTES`. Today that is harmless (`AS_OF`'s default is the same 2026-11-10 value), but a
+demo that changes the refund clock or the dedupe window needs them added to the `api`/`worker` env
+blocks first.
 
 ```bash
 # Shared shell variables used below. Re-source this block in every new terminal.
@@ -49,8 +154,9 @@ wait_for() {
 > - §6.8 shows the `0 -> AMOUNT` refund output on a **freshly seeded** invoice. On a
 >   re-run it picks the next invoice with a positive balance, so the "before" value may
 >   already be non-zero; reset the DB if you want the exact transcript.
-> - `AGENT_TOKEN=demo-token` must be on **every** `docker compose up`; a plain `docker compose up`
->   recreates the API with an empty token → all dashboard routes return 503.
+> - `AGENT_TOKEN` must reach **every** `docker compose up`: either it is in `.env` (as in the
+>   example above) or you pass it on the command line. A `docker compose up` that resolves it to
+>   empty recreates the API with no token → all dashboard routes return 503.
 
 ---
 
@@ -958,7 +1064,7 @@ SQL
 
 ## 11. What "working" looks like (one-screen summary)
 
-1. `make test-all` — 334 passed, 0 failed (integration must not be skipped; it must not be skipped
+1. `make test-all` — 338 passed, 0 failed (integration must not be skipped; it must not be skipped
    *silently* either — check the count, not just the exit code).
 2. `make lint` — ruff + mypy clean.
 3. Submit a policy question → `awaiting_approval` with a grounded draft and `[KB-xxx]` citations.
@@ -1078,7 +1184,7 @@ Full suite at this point (worker stopped, because a live worker would claim the 
 
 ```
 $ docker compose stop worker && uv run pytest tests/unit tests/integration tests/safety -q
-328 passed
+338 passed
 ```
 
 ## Appendix A. Recorded transcript (2026-11-13, clean volume)
