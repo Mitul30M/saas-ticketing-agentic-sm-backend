@@ -79,16 +79,16 @@ AGENT_TOKEN=demo-token docker compose up -d --build
 make seed && make ingest-kb
 ```
 
-> Cold-start gotcha: the worker container downloads `bge-small-en-v1.5` on its first retrieval.
-> If that takes longer than `TOOL_TIMEOUT_S` (8 s) the ticket escalates with
-> `escalation_reason=timeout` — fail-closed and safe, but noisy for a demo. Warm it once:
+> Cold start is handled in the image and at boot, so there is nothing to warm by hand:
+> `BAAI/bge-small-en-v1.5` (~129 MB) is baked into `/srv/hf` at build time, and both the API
+> lifespan and the worker preload it before serving (`embedding model warm in 3.0s` in the logs).
+> Expect `awaiting_approval` on the very first ticket of a fresh stack — no
+> `escalation_reason=timeout`. The `hf_cache` volume mounts `/srv/hf`, so the baked copy seeds the
+> volume instead of being shadowed, and it survives recreates.
 >
-> ```bash
-> docker compose exec -T worker /srv/.venv/bin/python -c \
->   "from sentence_transformers import SentenceTransformer as S; S('BAAI/bge-small-en-v1.5')"
-> ```
->
-> Compose mounts a named `hf_cache` volume, so the 129 MB download happens once.
+> If you edit `EMBED_MODEL`, that model is downloaded once at startup by the warm-up (same code
+> path); it is not baked. A warm-up failure is logged and non-fatal — retrieval then fails closed at
+> `TOOL_TIMEOUT_S` and the ticket escalates, which is the safe path.
 
 ### Host-mode alternative (faster loop, no rebuild)
 
@@ -108,6 +108,8 @@ silently — check the pass count, not just the exit code.
 
 > **Stop the compose worker before `make test-all`.** It polls the same `jobs` table and will
 > claim the `ITST` jobs the tests create, so the run fails in confusing ways. Restart it after.
+> The suite now aborts immediately (exit code 4) with instructions if it detects a connected
+> worker (`application_name=nimbus-worker`), so you cannot get this wrong silently.
 
 ```bash
 # Fast unit tests only (no DB, seconds).
@@ -804,7 +806,7 @@ SQL
 
 ## 11. What "working" looks like (one-screen summary)
 
-1. `make test-all` — 288 passed, 0 failed (integration must not be skipped).
+1. `make test-all` — 290 passed, 0 failed (integration must not be skipped).
 2. `make lint` — ruff + mypy clean.
 3. Submit a policy question → `awaiting_approval` with a grounded draft and `[KB-xxx]` citations.
 4. Approve → exactly one `outbox` row, ticket `resolved`, `reply_executed` audit row; replay is a no-op.
@@ -812,3 +814,83 @@ SQL
 6. Injection → flagged (`injection_suspected`, `instruction_override`), zero writes, still human-gated.
 7. Unknown topic → `awaiting_human`, no draft, no outbox.
 8. Refund propose → approve → money moves once; reject/duplicate → nothing moves; DB triggers block bypass.
+
+---
+
+## Appendix A. Recorded transcript (2026-11-13, clean volume)
+
+Raw output from a stack built after `docker compose down` + deleting the `hf_cache` volume, i.e. the
+"reviewer clones the repo" path. Nothing below is edited except line wrapping.
+
+Cold start — the model is baked into the image and preloaded before serving:
+
+```
+$ docker compose logs api worker | grep -i "embedding model warm"
+worker-1  | 2026-11-13 03:40:48,939 INFO __main__ embedding model warm in 2.80s
+api-1     | 2026-11-13 03:40:48,738 INFO app.main embedding model warm in 3.02s
+```
+
+First ticket of the fresh stack (no warm-up command, nothing pre-run):
+
+```
+$ curl -s -X POST $API/api/tickets -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: coldstart-12345" \
+    -d '{"subject":"Cold start check","body":"What is your refund policy and the refund window?","from_email":"aaron.martinez.50@example.nimbus.test"}'
+{"ticket_id":"52ccceb0-87cb-4dca-b561-adf266e4cba2","duplicate":false}
+
+$ curl -s -H "$AUTH" $API/api/tickets/52ccceb0-87cb-4dca-b561-adf266e4cba2 \
+    | python3 -c 'import sys,json;d=json.load(sys.stdin);print({k:d.get(k) for k in ("status","escalated","escalation_reason","kb_supported","draft_citations")})'
+{'status': 'awaiting_approval', 'escalated': False, 'escalation_reason': None, 'kb_supported': True, 'draft_citations': ['KB-006']}
+```
+
+Same ticket in the DB — note `escalation_reason` is empty and the tool call took 59 ms, not 8 s:
+
+```
+$ $PSQL -x -c "SELECT id, status, agent_outcome, escalated, escalation_reason, queue, category, priority, kb_supported, draft_citations FROM tickets WHERE id='<tid>';"
+-[ RECORD 1 ]-----+-------------------------------------
+id                | 52ccceb0-87cb-4dca-b561-adf266e4cba2
+status            | awaiting_approval
+agent_outcome     | action_proposed
+escalated         | f
+escalation_reason |
+queue             | billing
+category          | invoice_question
+priority          | medium
+kb_supported      | t
+draft_citations   | {KB-006}
+
+$ $PSQL -c "SELECT node, kind, duration_ms FROM trace_events WHERE ticket_id='<tid>' ORDER BY started_at;"
+      node       | kind | duration_ms
+-----------------+------+-------------
+ triage          | llm  |           3
+ kb_search       | tool |          59
+ grounding_check | llm  |           2
+ draft_reply     | llm  |           1
+(4 rows)
+```
+
+Admin routes inside the image (they used to 500 with `ModuleNotFoundError` because the Dockerfile
+copied only `app/`, `db/`, `config/`):
+
+```
+$ curl -s -o /dev/null -w "admin ingest-kb: %{http_code}\n" -X POST http://localhost:8003/api/admin/ingest-kb -H "$AUTH"
+admin ingest-kb: 200
+$ curl -s -X POST http://localhost:8003/api/admin/load-tickets -H "$AUTH"
+{"records":60,"inserted":60,"skipped_existing":0,"unknown_sender":0}
+```
+
+Test suite with a worker running — refuses instead of failing randomly (exit code 4):
+
+```
+$ docker compose up -d worker && uv run pytest tests/integration -q
+! _pytest.outcomes.Exit: a compose worker (application_name=nimbus-worker) is connected to this
+database and will claim the ITST jobs these tests create. Run `docker compose stop worker` first
+and restart it afterwards, or point TEST_DATABASE_URL at a separate database. !
+```
+
+With the worker stopped:
+
+```
+$ docker compose stop worker && uv run pytest tests/unit tests/integration tests/safety -q
+290 passed, 13 warnings in 10.15s
+```

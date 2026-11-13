@@ -1,0 +1,19 @@
+# Keep the build context small: the host venv/caches are ~1.2 GB and are not
+# needed to build the image (dependencies come from uv.lock inside the image).
+.venv
+.git
+.github
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.DS_Store
+.env
+# Raw source dataset stays out of the image; the curated files under data/ are
+# copied (data/tickets_all.jsonl, data/kb, data/dev, data/eval, seed manifest).
+data/raw
+eval/results
+docs
+plans
+tests

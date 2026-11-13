@@ -7,6 +7,7 @@ injection-safe by design).
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -50,6 +51,20 @@ def embed_query(text: str) -> list[float]:
     """Local open embedding model (same model as ingest, PLAN 4.4)."""
     values = _encoder_instance().encode(text, normalize_embeddings=True)
     return [float(value) for value in values]
+
+
+def warm_encoder() -> float:
+    """Load the embedding model and run one encode; returns elapsed seconds.
+
+    Called once by the API lifespan and by the worker before it polls, because a
+    cold load (torch import + weight init + any model download) can take longer
+    than TOOL_TIMEOUT_S. Without this the first kb_search of a fresh deployment
+    timed out and escalated the ticket. Keeps the module-level instance, so the
+    warm-up and the real queries share one model.
+    """
+    started = time.perf_counter()
+    embed_query("warmup")
+    return time.perf_counter() - started
 
 
 def vector_literal(values: Any) -> str:

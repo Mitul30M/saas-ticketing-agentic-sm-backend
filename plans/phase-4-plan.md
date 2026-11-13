@@ -95,3 +95,21 @@ invoice `INV-0050-M1` (2000¢ refundable).
   the API happy path and each edge case (auth, idempotency, size limit, injection, not-in-KB,
   refund/plan-change, re-run conflicts, scripted-LLM cases).
 
+
+## Post-review closure (2026-11-13)
+
+- **Cold start fixed at the cause:** the embedding model is baked into the image
+  (`/srv/hf`, `HF_HOME`) and preloaded by `warm_encoder()` in the API lifespan and the worker
+  before polling — not by raising `TOOL_TIMEOUT_S`. Evidence on a deleted `hf_cache` volume:
+  `embedding model warm in 3.02s` (api) / `2.80s` (worker); first ticket `awaiting_approval`,
+  `kb_supported=true`, `[KB-006]`, `kb_search` **59 ms**, no `escalation_reason`.
+- **Image contents:** `COPY scripts data eval` + `.dockerignore`; admin `ingest-kb` and
+  `load-tickets` return `200` from the container (they 500'd before). R10 keeps its `init`
+  service as open scope.
+- **Test trap removed:** the worker connects with `application_name=nimbus-worker` and
+  `tests/integration/conftest.py` aborts `make test-all` (exit 4) with instructions when it sees
+  one, instead of letting it steal ITST jobs. Full suite with the worker stopped: **290 passed**.
+- **Docs:** new `README.md` (quickstart, ports, token rule, test warning, honest `make eval`
+  status) and `docs/ROUTING.MD` (categories → queues → statuses → approval surfaces → escalation
+  reasons → dashboard filters); `docs/VERIFY.md` §1/§2 updated and an appendix of raw
+  transcript output added.

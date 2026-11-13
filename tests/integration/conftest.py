@@ -55,6 +55,28 @@ def db_pool() -> Any:
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _refuse_live_worker(migrated_conn: Any) -> None:
+    """Fail fast when a compose worker is connected to this database.
+
+    The worker polls the same `jobs` table, so it would claim the ITST jobs these
+    tests create and the failures look random. Detected by `application_name`
+    (set on the worker's pool in app/worker.py).
+    """
+    row = migrated_conn.execute(
+        "SELECT count(*) AS n FROM pg_stat_activity "
+        "WHERE datname = current_database() AND application_name = 'nimbus-worker'"
+    ).fetchone()
+    if row and int(row["n"]) > 0:
+        pytest.exit(
+            "a compose worker (application_name=nimbus-worker) is connected to this "
+            "database and will claim the ITST jobs these tests create. Run "
+            "`docker compose stop worker` first and restart it afterwards, or point "
+            "TEST_DATABASE_URL at a separate database.",
+            returncode=4,
+        )
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _teardown(migrated_conn: Any) -> Any:
     """Remove every ITST-marked fixture row, FK-safe order. Runs once."""
     yield

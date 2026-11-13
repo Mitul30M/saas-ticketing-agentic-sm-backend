@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -15,17 +17,39 @@ from app.api.admin import router as admin_router
 from app.api.metrics import router as metrics_router
 from app.api.routes import router
 from app.config import settings
+from app.retrieval.hybrid import warm_encoder
+
+logger = logging.getLogger(__name__)
 
 app_state: dict[str, db.DictPool] = {}
 
 
+async def _warm_embedding_model() -> None:
+    """Preload the embedding model so the first kb_search is not a cold start.
+
+    A failure is logged, not fatal: tools then hit the timeout and the ticket
+    escalates (the safe path) instead of the API failing to boot.
+    """
+    try:
+        seconds = await asyncio.to_thread(warm_encoder)
+    except Exception:
+        logger.warning("embedding model warmup failed; first kb_search may time out")
+        return
+    logger.info("embedding model warm in %.2fs", seconds)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logging.basicConfig(
+        level=settings.log_level.upper(),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     pool = db.create_pool(settings.database_url)
     pool.open(wait=True)
     with pool.connection() as conn:
         db.run_migrations(conn)
     app_state["db"] = pool
+    await _warm_embedding_model()
     yield
     pool.close()
 

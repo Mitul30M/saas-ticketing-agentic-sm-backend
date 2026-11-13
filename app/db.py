@@ -36,13 +36,28 @@ def connect(conninfo: str) -> DictConn:
         raise RuntimeError(f"database connect failed: {exc}") from exc
 
 
-def create_pool(conninfo: str, *, min_size: int = 1, max_size: int = 10) -> DictPool:
+def create_pool(
+    conninfo: str,
+    *,
+    min_size: int = 1,
+    max_size: int = 10,
+    application_name: str | None = None,
+) -> DictPool:
     """Create a bounded pool whose acquired connections use dict rows."""
+    kwargs: dict[str, Any] = {
+        "row_factory": dict_row,
+        "autocommit": True,
+        "connect_timeout": 5,
+    }
+    if application_name:
+        # Identifies the process in pg_stat_activity: the test suite uses it to
+        # refuse to run while a worker is claiming its jobs.
+        kwargs["application_name"] = application_name
     return ConnectionPool(
         conninfo,
         min_size=min_size,
         max_size=max_size,
-        kwargs={"row_factory": dict_row, "autocommit": True, "connect_timeout": 5},
+        kwargs=kwargs,
         open=False,
     )
 

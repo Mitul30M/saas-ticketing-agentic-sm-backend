@@ -337,4 +337,39 @@ Format: 3–5 lines per decision. Newest at the bottom.
   `amount_refunded_cents` +500 once, invoice `partially_refunded`, three audit
   rows; replayed decide is a no-op.
 
+### 2026-11-13 · Cold start: bake the embedding model and warm it at boot
+- The first-ticket timeout above is fixed at the cause, not by raising
+  `TOOL_TIMEOUT_S` (which would hide real slow queries and make the safety
+  budget meaningless). The image now bakes `BAAI/bge-small-en-v1.5` into
+  `/srv/hf` (`HF_HOME`) at build time, so a clean clone needs no runtime
+  download; `warm_encoder()` runs once in the API lifespan and once in the
+  worker before it polls, sharing the module-level instance the tools use.
+- Measured on a deleted `hf_cache` volume (`docker compose down` + rebuild):
+  warm-up 3.0 s (api) / 2.8 s (worker), first ticket `awaiting_approval` with
+  `kb_supported=true` and `[KB-006]`, no `timeout` escalation. The compose
+  volume is mounted at `/srv/hf`, the same path, so the baked copy seeds the
+  volume on first create instead of being shadowed.
+- Warm-up failure is logged and non-fatal: retrieval then fails closed at the
+  tool timeout and the ticket escalates, rather than the container refusing to
+  start (demo availability). `EMBED_MODEL` overrides are not baked; the startup
+  warm-up downloads them once, on the same code path.
+
+### 2026-11-13 · Image contents and the live-worker test trap
+- The image now copies `scripts/`, `data/` and `eval/`. The dev-only admin routes
+  import those modules, so `POST /api/admin/ingest-kb` and `/load-tickets` used to
+  500 with `ModuleNotFoundError` in a container even though they worked on the
+  host. `.dockerignore` excludes the host `.venv`/caches (1.2 GB of build context)
+  and `data/raw`, but keeps the curated `data/` files the loader needs.
+- The worker pool sets `application_name=nimbus-worker`; the integration conftest
+  aborts `make test-all` when it sees one on the same database. Stopping the worker
+  by hand was the only protection and reviewers run `up` before the tests, so the
+  failure looked random. Rejected: a separate test database for now (needs seed +
+  KB ingest in the fixtures, ~10 s and more moving parts) — the guard aborts loudly
+  and `TEST_DATABASE_URL` still allows isolation.
+- `make eval` is documented as not-yet-implemented (`eval/run_eval.py` is Phase 5)
+  instead of pointing at a missing file, so the limitation is visible rather than
+  discovered by a reviewer.
+
+
+
 

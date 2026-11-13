@@ -22,7 +22,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - hf_cache:/root/.cache/huggingface
+      - hf_cache:/srv/hf          # matches HF_HOME in the image
     environment:
       DATABASE_URL: postgresql://nimbus:nimbus@db:5432/nimbus
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}
@@ -48,7 +48,7 @@ services:
     image: nimbus-backend:latest
     command: ["/srv/.venv/bin/python", "-m", "app.worker"]
     volumes:
-      - hf_cache:/root/.cache/huggingface
+      - hf_cache:/srv/hf          # matches HF_HOME in the image
     environment:
       DATABASE_URL: postgresql://nimbus:nimbus@db:5432/nimbus
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}

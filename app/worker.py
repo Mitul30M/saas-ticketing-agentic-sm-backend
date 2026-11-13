@@ -15,6 +15,7 @@ from app.agent.graph import build_graph
 from app.config import settings
 from app.db import create_pool
 from app.llm.base import LLMClient
+from app.retrieval.hybrid import warm_encoder
 from app.services import jobs
 from app.services.executor import apply_due_plan_changes, execute_approved_reply
 from app.services.ticket_state import apply_run_result, mark_resolved
@@ -90,8 +91,19 @@ def run_loop(pool: Any) -> None:
 
 
 if __name__ == "__main__":
-    pool = create_pool(settings.database_url)
+    logging.basicConfig(
+        level=settings.log_level.upper(),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    pool = create_pool(settings.database_url, application_name="nimbus-worker")
     pool.open(wait=True)
+    # Warm once per process: the first kb_search of a fresh deployment used to
+    # exceed TOOL_TIMEOUT_S while torch/the model loaded, escalating the ticket.
+    try:
+        seconds = warm_encoder()
+        logger.info("embedding model warm in %.2fs", seconds)
+    except Exception:
+        logger.warning("embedding model warmup failed; first kb_search may time out")
     try:
         run_loop(pool)
     finally:
