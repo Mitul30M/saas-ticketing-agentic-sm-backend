@@ -1,4 +1,8 @@
-# Backend-only compose (frontend lives in a separate repo).
+# Backend services plus an optional Next.js console.
+# `web` is behind a profile because this repo must stay runnable on its own: its
+# build context is the SIBLING frontend repo, and a clone without that directory
+# would fail to build. Bring the full stack up with:
+#   docker compose --profile web up -d --build
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -58,6 +62,31 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  # Next.js console (separate repo, read-only for the UI work). Server-side only:
+  # the browser talks to this container, which proxies to `api` with the bearer
+  # token. NIMBUS_API_URL must be the compose service name, not localhost.
+  web:
+    profiles: ["web"]
+    build:
+      context: ../saas-ticketing-agentic-sm-next-app
+      dockerfile: Dockerfile
+    image: nimbus-console:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NIMBUS_API_URL: http://api:8000
+      AGENT_TOKEN: ${AGENT_TOKEN:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # node:slim has no curl/wget; Node 22's fetch is enough for a liveness check.
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
 
 volumes:
   pgdata:

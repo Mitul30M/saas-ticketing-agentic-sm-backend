@@ -5,6 +5,13 @@ up:
 	docker compose up -d --build
 	@echo "Waiting for db health..."; until docker compose ps db | grep -q "healthy"; do sleep 2; done
 
+# Full stack including the Next.js console (sibling repo as the build context).
+# Kept separate so `make up` still works for a backend-only clone.
+up-web:
+	docker compose --profile web up -d --build
+	@echo "Console: http://localhost:3000   API: http://localhost:8000"
+	@echo "First run? make migrate seed ingest-kb (then reload the console)."
+
 down:
 	docker compose down
 

@@ -3,7 +3,9 @@
 > **Audience:** whoever builds the Next.js UI (customer portal `/submit`, agent dashboard
 > `/dashboard`, ticket detail, approval panel, metrics page).
 > **Status:** live and verified. Every route below was called against the running backend on
-> 2026-11-13 and the status codes in §12 are the ones it actually returned.
+> 2026-11-13 and the status codes in §12 are the ones it actually returned. Re-checked the same day
+> after Phase 6 (eval + safety work): **no route or field changed**, but the agent's behaviour did —
+> see §0.1 before you build a screen that assumes "a draft always exists".
 > **Source of truth:** `PLAN.md` §4.9 (API surface) + this file. If a shape in this file and the
 > code disagree, the code wins — open an issue against this guide, don't guess.
 >
@@ -40,6 +42,21 @@
 - **One public write, everything else needs the token.** Only `POST /api/tickets` (customer
   intake) is unauthenticated. All dashboard reads/writes need `Authorization: Bearer <AGENT_TOKEN>`.
 - **There is no real-time channel.** No SSE/WebSocket today — poll (§10).
+
+### 0.1 What changed after Phase 6 (and what it means for the UI)
+
+The HTTP surface is unchanged. Four behavioural facts changed and each one has a screen consequence:
+
+| Change | UI consequence |
+|---|---|
+| `security_incident` and `feature_request` are now a **deterministic escalation gate** (code, before the model is asked), because the KB deliberately does not cover them | a security/feature ticket always ends `awaiting_human` with `LOW_CONFIDENCE` and **no draft**. Render the "no draft" state as normal, not as a failure |
+| Drafts are rarer and more careful: ~4 in 5 answerable tickets produce one; the rest abstain | never assume `awaiting_approval` will follow `triaging`; watch for `awaiting_human` |
+| Triage prompt is versioned and changing (`triage_v3`); the published eval used `triage_v2` | don't hard-code expectations like "refund tickets are always high priority" |
+| Evaluation now exists as files in this repo (`docs/EVAL_RESULTS.md`), still **not** over HTTP | the metrics page must link to it as text; do not invent eval numbers in the UI |
+
+Also: the frontend's own plan and backend primer live in the frontend repo
+(`plans/PLAN.md`, `plans/backend-guide.MD`). This file remains the route contract; §14 still governs
+changes.
 
 Local URLs:
 
@@ -836,7 +853,9 @@ Emitted by the agent:
 \*tool error codes also surface here in lowercase when a tool fails
 (`invalid_input`, `not_found`, `ownership_mismatch`, `business_rule`, `duplicate`, `timeout`,
 `internal`). **Treat this field as an open string** — display known codes nicely, fall back to the
-raw value in a `<code>` chip. Never `switch` with a default that hides unknown values.### 5.5 `flags` (injection detection — flags only, never permissions)
+raw value in a `<code>` chip. Never `switch` with a default that hides unknown values.
+
+### 5.5 `flags` (injection detection — flags only, never permissions)
 
 `instruction_override`, `system_prompt_marker`, `role_injection`, `identity_claim`, `tool_probe`
 (plus draft-level `edited_citation_invalid`, `edited_promise_language`).
@@ -1406,7 +1425,7 @@ Phase 5 requirement → backend support:
 | Admin routes unmounted by default | seed/ingest buttons 404 | set `ENABLE_ADMIN_ROUTES=true` locally |
 | OpenAPI has no response schemas for most GETs | generated clients are untyped | use §8 types |
 | Stub LLM mode | drafts are canned text | run with `LLM_PROVIDER=groq` for real output |
-| Eval results not exposed over HTTP | metrics page can't show Phase 6 numbers yet | read `eval/results/` after Phase 6 |
+| Eval results not exposed over HTTP | the metrics page cannot show model quality | link to `docs/EVAL_RESULTS.md` (committed table) and `eval/results/` (raw runs) |
 
 Ask for any of the first six if the UI needs them — each is a small additive change, and this
 guide + `PLAN.md` §4.9 must be updated in the same commit.

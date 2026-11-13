@@ -37,6 +37,22 @@ curl -s localhost:8000/api/tickets -H "Authorization: Bearer demo-token"
 
 - API: <http://localhost:8000> (openapi at `/docs`)
 - Postgres: `localhost:5433` (`nimbus`/`nimbus`, database `nimbus`)
+
+### Frontend console (optional, separate repo)
+
+The Next.js console is a **separate repo** (`../saas-ticketing-agentic-sm-next-app`). It is mounted
+in this compose file as the `web` service behind a **profile**, because the build context is that
+sibling directory — a backend-only clone must still run with plain `docker compose up`.
+
+```bash
+AGENT_TOKEN=demo-token docker compose --profile web up -d --build
+# or: AGENT_TOKEN=demo-token make up-web
+```
+
+- Console: <http://localhost:3000> (public `/submit`; `/dashboard` asks for an operator name)
+- The browser never sees `AGENT_TOKEN`: the container proxies to `http://api:8000` server-side.
+- If the console repo is not present, `--profile web` is the only thing that fails; the API and
+  worker are unaffected. `make up` stays backend-only on purpose.
 - The API runs migrations on startup and **preloads the embedding model**; the worker does the same
   before polling, so the first ticket does not hit the 8 s tool timeout on a cold clone.
 

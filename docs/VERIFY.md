@@ -141,6 +141,9 @@ for model numbers: the stub exercises the same gate, executor and database const
 
 ```bash
 # Start db + api + worker from the built image (waits for db health).
+# To include the Next.js console (separate repo, mounted as the `web` profile):
+#   AGENT_TOKEN=demo-token docker compose --profile web up -d --build
+#   -> http://localhost:3000  (a backend-only clone keeps working without it)
 # AGENT_TOKEN is required for the dashboard routes; pass it through compose.
 # KEEP IT ON LATER `up` CALLS TOO: `docker compose up -d` without it recreates
 # the API with an empty token, and every dashboard route then returns 503.
