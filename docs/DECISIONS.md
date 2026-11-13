@@ -386,3 +386,65 @@ Format: 3–5 lines per decision. Newest at the bottom.
   one nullable object) and returning the whole article in the citations list
   (duplicates text the UI already renders from `draft_reply`).
 - Both are additive, so an existing client is unaffected; PLAN §4.9 records them.
+
+### 2026-11-13 · Phase 6: eval runs in its own database, replay is the published artefact
+- Eval runs against `nimbus_eval` (same container, separate database) created and migrated by
+  `eval/run_eval.py`; the runner refuses any database whose name does not end in `_eval` unless
+  `--allow-non-eval-db` is passed. The compose api/worker point at `nimbus`, so they cannot claim
+  eval jobs and the demo state is never touched. Rejected: a separate schema (search_path bugs) and
+  truncating the demo DB (destroys the demo, easy to confuse with live data).
+- `--llm replay` serves a captured real-model run from `eval/replay_cache.json` and **fails on a
+  cache miss** instead of calling a provider, so `make eval` reproduces the published table with no
+  API key. The capture is refused on a reused database, because responses from earlier runs cannot
+  be attributed to the current one. Replay uses provider `groq` internally so cache keys match.
+- Tickets are inserted through `app.services.intake.create_ticket` (same identity rule as
+  production: sender email only) and driven through `worker.run_one` (jobs table → graph →
+  approval gate). The runner never calls a decide endpoint and asserts
+  `approved/executed/outbox == 0` before writing results.
+
+### 2026-11-13 · Phase 6: two seed fixtures were not testing what they claimed
+- `_force_paid_invoice` refreshed `status`/`amount_refunded_cents` on conflict but not `paid_at`,
+  so re-seeding kept the first run's invoice age: the "5 days old, fully refunded" fixture was 90
+  days old and failed the window rule instead of the balance rule. The seed's own promise
+  ("re-running is idempotent") was false. Now updates `paid_at`, `amount_cents`, `due_at`.
+- `refund_outside_window` named an invoice the base seed pays 20 days before `AS_OF` (inside the
+  30-day window) and was sent by the duplicate-email customer, so `lookup_customer` failed closed
+  and the window rule was never reached. Re-pointed at `INV-0004-M1` (aged to 60 days) from
+  `blake.barnes.4`. The manifest wording ("clamp to the remaining 70%") was also wrong: the tool
+  rejects amounts above the remaining balance, it never clamps.
+
+### 2026-11-13 · Phase 6: the checkpointer's one-time DDL needed a lock
+- `make_checkpointer` runs `PostgresSaver.setup()` per job. Two eval runs at `--concurrency 2`
+  raced on `checkpoint_migrations` (unique violation) and the job queue retried the loser.
+  `app/worker.py` claims multiple worker copies are safe, so this was a first-boot production risk
+  too, not only an eval artefact. A module-level lock plus a per-DSN "already set up" set fixes it
+  in-process; cross-process first boot still relies on the job retry, which is what attempts are
+  for.
+
+### 2026-11-13 · Phase 6: real-model output shape is not the stub's
+- `gpt-oss-120b` omitted the `reason` field in the support check, which was required, so every
+  live ticket failed with `INTERNAL_ERROR`. `reason` is cosmetic (trace/dashboard only, never a
+  gate), so it now defaults to empty; `support_v3.txt` lists every field explicitly.
+- The repair re-ask claimed the reply "was not valid JSON" even when it was valid JSON that failed
+  validation, and `parse_structured` threw away the field name. Both now name the schema error, so
+  the retry can actually fix it. Prompt change is a new version (`support_v3`), not an edit to v2,
+  because the version string is recorded in the trace and the eval manifest.
+
+### 2026-11-13 · Phase 6: the test suite is pinned to the stub provider
+- `LLM_PROVIDER=groq` in `.env` is right for demos and eval runs, but `build_graph(pool)` reads it,
+  so 18 integration tests started calling the real model and failing on non-stub drafts.
+  `tests/conftest.py` pins `settings.llm_provider = "stub"` for the session. Tests must not depend
+  on a vendor, a key, or the developer's `.env`; a test that needs a real provider must construct
+  it explicitly.
+
+### 2026-11-13 · Phase 6: eval-set composition and metric populations
+- 43 rows = 16 hand-written edge tickets (exported from the seed) + 23 dataset rows drawn
+  deterministically from `tickets_all.jsonl` + 4 authored rows. Disjoint from `data/dev/` by
+  content hash **and** by `(source_dataset, source_row)`; the old test only checked content against
+  `handwritten.jsonl`, so the real eval set could have overlapped dev silently.
+- The mix is deliberately skewed towards escalation (44% answer vs ~50% target, 21% not-in-KB vs
+  ~20%): the expensive error is a confident wrong answer, and the set has to be able to measure
+  it. Deviations are reported in the run, not smoothed over.
+- Triage accuracy is measured only on rows that reached the triage node (a `BAD_TICKET` never
+  does) and the skipped ids are listed. Tool choice counts a proposal that the tool correctly
+  rejected as a correct call; the rejection is reported separately as "proposal rejections".
