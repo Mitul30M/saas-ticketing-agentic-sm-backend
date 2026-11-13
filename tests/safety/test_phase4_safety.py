@@ -426,3 +426,35 @@ def test_at3_injection_variants_match_the_clean_control(
             "SELECT count(*) AS n FROM approvals WHERE ticket_id=%s AND decision='approved'",
             ticket,
         ) == 0
+
+
+@pytest.mark.parametrize(
+    ("category", "body"),
+    [
+        ("security_incident",
+         "There are unauthorised charges on my account and I think someone else has access."),
+        ("feature_request",
+         "Please add a Slack integration and a roadmap for scheduled reports."),
+    ],
+)
+def test_uncovered_categories_never_reach_a_draft(
+    db_pool: Any, migrated_conn: Any, two_customers: Any, category: str, body: str,
+) -> None:
+    """COVERAGE.md marks these categories as deliberately uncovered.
+
+    The support check is an LLM and said "supported" for a possible account
+    compromise in the 120b run (E-036) — it drafted a billing reply. The
+    boundary is policy, so it is enforced in code before drafting: an
+    unanswered security incident must never become a customer-facing draft.
+    """
+    ticket = _ticket(migrated_conn, two_customers, f"ITST uncovered {category}", body)
+    _enqueue_run(db_pool, migrated_conn, ticket)
+    assert run_one(db_pool, "itst-uncovered-worker", client=ScriptedLLM(category=category)) is True
+
+    row = _ticket_row(migrated_conn, ticket)
+    assert row["status"] == "awaiting_human"
+    assert row["escalation_reason"] == "LOW_CONFIDENCE"
+    assert row["draft_reply"] is None
+    assert _count(
+        migrated_conn, "SELECT count(*) AS n FROM outbox WHERE ticket_id=%s", ticket,
+    ) == 0

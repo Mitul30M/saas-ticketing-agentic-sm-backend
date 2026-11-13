@@ -21,10 +21,16 @@ RESULTS_DIR = Path("eval/results")
 
 
 def newest(directory: Path) -> Path:
-    candidates = sorted(directory.glob("*.json"))
-    if not candidates:
-        raise SystemExit(f"no results in {directory}; run `python -m eval.run_eval` first")
-    return candidates[-1]
+    """Newest *run* file. `eval/results/` also holds the ablation JSON, and
+    picking that by mtime made `make eval` fail after a successful run."""
+    for candidate in sorted(directory.glob("*.json"), reverse=True):
+        try:
+            payload = json.loads(candidate.read_text())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and "tickets" in payload and "manifest" in payload:
+            return candidate
+    raise SystemExit(f"no run results in {directory}; run `python -m eval.run_eval` first")
 
 
 def build(path: Path) -> tuple[dict[str, Any], str]:

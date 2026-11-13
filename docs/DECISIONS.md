@@ -482,3 +482,43 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - `--tpm` now estimates the next call at the largest call in the window, not the mean: a 2.2k
   grounding prompt after small triage calls exceeded the 8k TPM limit while the average looked
   safe.
+
+### 2026-11-13 · Phase 6: prompt fixes validated on dev, and a plan-parser fallback
+- `support_v4`: the old rule ("requests that need account data are supported only if a chunk
+  explains what the customer must do") made the model answer `supported=false` for policy
+  questions about a specific charge — 15 of 19 answer rows escalated. v4 states that explaining
+  the policy/steps is supported without account data, and that inventing account facts is not.
+  Measured on dev (24 rows, `grounding_report`): 11/15 covered supported, 8/9 uncovered refused.
+  No eval row was consulted when choosing the wording.
+- `triage_v2`: added boundary examples (explain a charge = invoice_question, ask for money =
+  refund_request, policy question = invoice_question) and priority examples (high = money at
+  risk / blocked access). The category drives the branch, so `E-020` had escalated as
+  `not_found` purely because an invoice question was classified as a refund request.
+- `parse_target_plan(text, current_plan_id=...)`: when the customer names the current plan and one
+  target ("I am on the annual Pro plan, move me to Starter") and exactly one mentioned plan
+  differs from the active subscription, that plan is the target. Genuine ambiguity ("from Pro to
+  Starter, not Business") still raises; the tool still rejects a no-op change.
+- `scripts/grounding_report.py` gained `--limit` and `--pause-seconds`: it fired 24 support calls
+  back to back and tripped the 8k tokens/minute ceiling, which is the same trap as the eval run.
+- `tests/unit/test_triage.py` asserted the literal filename `triage_v1.txt`, so any version bump
+  broke it. It now asserts the file matches `PROMPT_VERSION` — the invariant that matters, since
+  the trace records the version string.
+
+### 2026-11-13 · Phase 6: uncovered categories are a code gate, not a prompt request
+- The 120b capture drafted a billing reply for a possible account compromise (E-036): triage said
+  `security_incident`, but the support check found a neighbouring article (KB-004) and answered
+  `supported=true`. `COVERAGE.md` says security incidents and feature requests escalate, so that
+  boundary now lives in `grounding.py` as `UNCOVERED_CATEGORIES` (Gate 0), and two safety tests
+  prove no draft is produced even when the LLM double says "supported".
+- Cost: those categories are now deterministic escalations, so the eval rows for them measure the
+  guard rather than the model. Safety beats measurement here; the remaining `not_in_kb` rows
+  (third-party API asks, fax) still test the model.
+- `triage_v3` removes the sentiment sentence added in v2 ("a polite request is neutral even when
+  it asks for money back"): it generalised and took sentiment accuracy from 0.71 to 0.415. The
+  category/priority examples that actually helped (0.902→0.976 and 0.585→0.829) stay.
+- `--resume` exists because a 30-minute drain timeout threw away 39 completed tickets. It reuses
+  tickets whose latest job is done, re-queues interrupted ones through `enqueue_rerun` (new
+  checkpointer thread, guarded transition) and refuses `--write-replay` unless the database holds
+  exactly the eval tickets and nothing else. That turned a 135k-token re-run into a 10k resume.
+- `eval.report` picked the newest `*.json`, which after `make eval-ablation` is the ablation file,
+  so `make eval` failed on its own report step. It now skips files that are not run results.

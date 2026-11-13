@@ -23,7 +23,16 @@ from app.agent.state import AgentState
 from app.config import settings
 from app.llm.base import LLMClient
 
-PROMPT_VERSION = "support_v3"
+PROMPT_VERSION = "support_v4"
+
+# COVERAGE.md marks these categories as deliberately uncovered ("escalate"). The
+# support check is an LLM and may still say yes to a neighbouring article — the
+# gpt-oss-120b run drafted a billing reply for a possible account compromise
+# (E-036). The boundary is policy, so it is enforced here, not asked for.
+UNCOVERED_CATEGORIES: dict[str, str] = {
+    "security_incident": "no security-incident runbook in the KB by design",
+    "feature_request": "roadmap and feature commitments are not supported",
+}
 _PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / f"{PROMPT_VERSION}.txt"
 
 
@@ -105,6 +114,19 @@ def make_grounding_node(pool: Any, client: LLMClient):
             return guard
         ticket_id = str(state["ticket_id"])
         trace_id = str(state["trace_id"])
+
+        # Gate 0: a category the KB deliberately does not cover.
+        category = str((state.get("triage") or {}).get("category") or "")
+        if category in UNCOVERED_CATEGORIES:
+            trace_node(
+                pool, ticket_id, trace_id, "grounding_check", "decision",
+                {"category": category}, {"supported": False, "reason_code": "LOW_CONFIDENCE"},
+            )
+            return {
+                **escalation_update("LOW_CONFIDENCE", UNCOVERED_CATEGORIES[category]),
+                "step_count": next_step(state),
+            }
+
         chunks = state.get("retrieved") or []
         best_score = max((float(c.get("rrf_score") or 0.0) for c in chunks), default=0.0)
 

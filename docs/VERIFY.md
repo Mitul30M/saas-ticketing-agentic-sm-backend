@@ -948,6 +948,11 @@ Pitfalls:
   the capture could not be attributed to the current one.
 - `make eval` needs `eval/replay_cache.json`. If it is missing, the runner exits 2 with the command
   to create it — that is the honest state, not a broken build.
+- A capture is tied to the prompts and commit that produced it. The cache records both, and the
+  loader refuses to replay when a prompt version has moved (`captured with different prompts
+  (triage triage_v2 -> triage_v3)`) instead of failing with a wall of cache misses. After changing
+  a prompt, run `make eval-live`; to reproduce an older table, check out the commit in the cache
+  meta.
 
 Full suite at this point (worker stopped, because a live worker would claim the test jobs):
 

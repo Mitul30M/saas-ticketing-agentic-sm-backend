@@ -47,7 +47,18 @@ BASE_COLUMNS = [
 
 
 def main() -> None:
+    import argparse
+    import time
+
     import psycopg
+
+    parser = argparse.ArgumentParser(description="Dev-split grounding evidence")
+    parser.add_argument("--limit", type=int, default=None, help="first N dev rows")
+    parser.add_argument(
+        "--pause-seconds", type=float, default=0.0,
+        help="sleep between LLM calls (free tiers have an 8k tokens/minute ceiling)",
+    )
+    args = parser.parse_args()
 
     with psycopg.connect(
         settings.database_url, row_factory=dict_row, autocommit=True
@@ -56,6 +67,8 @@ def main() -> None:
         if settings.llm_provider != "stub":
             client = LLMClient(pool=None)
         rows = [json.loads(line) for line in DEV_FILE.read_text().splitlines() if line.strip()]
+        if args.limit is not None:
+            rows = rows[: args.limit]
         OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
         with OUT_FILE.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=BASE_COLUMNS)
@@ -76,6 +89,8 @@ def main() -> None:
                     "reason": "",
                 }
                 if client is not None and chunks:
+                    if args.pause_seconds:
+                        time.sleep(args.pause_seconds)
                     response = client.generate(
                         [
                             {"role": "system", "content": _system_prompt()},

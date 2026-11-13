@@ -70,6 +70,14 @@ class ReplayLLM(LLMClient):
         )
 
 
+def _current_prompt_versions() -> dict[str, str]:
+    from app.agent.nodes.draft import PROMPT_VERSION as DRAFT
+    from app.agent.nodes.grounding import PROMPT_VERSION as SUPPORT
+    from app.agent.nodes.triage import PROMPT_VERSION as TRIAGE
+
+    return {"triage": TRIAGE, "draft": DRAFT, "support": SUPPORT}
+
+
 def load(path: Path = DEFAULT_PATH) -> ReplayLLM:
     if not path.exists():
         raise LLMError(
@@ -87,6 +95,21 @@ def load(path: Path = DEFAULT_PATH) -> ReplayLLM:
             f"(LLM_MODEL was {settings.llm_model!r})"
         )
         settings.llm_model = model
+    captured = meta.get("prompt_versions") or {}
+    current = _current_prompt_versions()
+    moved = {
+        name: (captured.get(name), version)
+        for name, version in current.items()
+        if captured.get(name) and captured[name] != version
+    }
+    if moved:
+        raising = ", ".join(f"{name} {before} -> {after}" for name, (before, after) in moved.items())
+        raise LLMError(
+            f"{path} was captured with different prompts ({raising}); replaying it would "
+            "miss every cache key. Run `make eval-live` to capture the current prompts, or "
+            f"check out the commit in {path} (meta.commit) to reproduce the old run."
+        )
+
     entries = {str(row["key"]): row for row in payload.get("entries") or []}
     if not entries:
         raise LLMError(f"{path} has no cache entries")

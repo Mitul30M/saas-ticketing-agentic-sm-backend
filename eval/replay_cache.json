@@ -1,0 +1,650 @@
+{
+ "meta": {
+  "model": "openai/gpt-oss-120b",
+  "captured_at": "2026-11-13T10:21:08.285087+00:00",
+  "prompt_versions": {
+   "triage": "triage_v2",
+   "draft": "draft_v4",
+   "support": "support_v4"
+  },
+  "commit": "04e020a"
+ },
+ "entries": [
+  {
+   "key": "21c323aaf15ac232c85ece3b6aca858cee36e16e84163329374ef1a324d3f3de",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user asks for a paper copy of their last invoice to be faxed.\",\n    \"priority\": \"The request is not urgent and does not involve money at risk.\",\n    \"sentiment\": \"The tone is polite and factual.\"\n  }\n}",
+   "tokens_in": 633,
+   "tokens_out": 318
+  },
+  {
+   "key": "112baece0db5ca67db88668bde5f850edc172709e93b1c7efb4805c8e84f331c",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket asks for a full refund of specific invoices.\",\n    \"priority\": \"Refund requests involve money and are classified as high priority.\",\n    \"sentiment\": \"The tone is a direct request without complaint, so neutral.\"\n  }\n}",
+   "tokens_in": 652,
+   "tokens_out": 356
+  },
+  {
+   "key": "d1f90a38130ac5f905e6e7517951d31c9a668666f8d3e83889cee3e8b2822de8",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"Customer asks for a refund for the correct account.\",\n    \"priority\": \"Refund request involves money, so high priority.\",\n    \"sentiment\": \"The tone is factual without strong complaint, so neutral.\"\n  }\n}",
+   "tokens_in": 636,
+   "tokens_out": 346
+  },
+  {
+   "key": "0135f80897d7ceeffc1379cde2bc66f76f63ae02c70ce7389595b63cdd4becd8",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"Retrieved chunks do not address faxing or paper copy delivery of invoices.\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1041,
+   "tokens_out": 192
+  },
+  {
+   "key": "8120e8207ea0503f8a3299bc701a0dc2dae54e7c5909ccd7c8c7cf6f7836bf9e",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Policy requires human approval for refunds\", \"claims\": [{\"claim\": \"Refunds are proposals that require a human approver before any money is changed and cannot be approved automatically\", \"kb_id\": \"KB-006\"}, {\"claim\": \"A refund request must pass eligibility checks such as invoice ownership, payment status, 30\u2011day window, and no existing open request for the same invoice\", \"kb_id\": \"KB-006\"}, {\"claim\": \"Refund requests go through statuses like pending approval, approved, and executed\", \"kb_id\": \"KB-009\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1039,
+   "tokens_out": 459
+  },
+  {
+   "key": "3720c0ff81f3f92781824c0514ecc87e9e700156cfd2ff909881dd8b70d27561",
+   "text": "{\n  \"category\": \"plan_change\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"User requests to downgrade from annual Pro to monthly Starter.\",\n    \"priority\": \"Changing plan does not involve immediate money risk, so medium priority.\",\n    \"sentiment\": \"The tone is factual and polite, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 632,
+   "tokens_out": 306
+  },
+  {
+   "key": "32905ee83ab4c5fef4ed86b793199bd84164bc81f543cc941122d76d55d399d6",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user explicitly asks for a refund of the payment made this month.\",\n    \"priority\": \"Refund requests involve money and should be addressed promptly, so they are high priority.\",\n    \"sentiment\": \"The tone is a straightforward request without complaint, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 643,
+   "tokens_out": 302
+  },
+  {
+   "key": "c13d9cbaceb43799f71a39e04dfad5043aaf6883f1c1687015493908bbcf7e71",
+   "text": "{\"reply\":\"I understand you\u2019d like a refund for invoices INV-0019-M4 and INV-0002-M4. According to our refund policy, refunds are proposals that require human approval before any money is changed [KB-006]. A request must be submitted and will be reviewed; we cannot process it automatically [KB-006]. You can submit a refund request through your billing portal or provide the invoice details, and our team will evaluate it within the 30\u2011day window after payment [KB-006]. Once approved, the refund will be executed as a separate step [KB-009].\",\"citations\":[\"KB-006\",\"KB-009\"]}",
+   "tokens_in": 826,
+   "tokens_out": 447
+  },
+  {
+   "key": "34d706e8e4b8a31163b1f33d12d3ce1b6c58c166833b87c85e323af7a1be5e4b",
+   "text": "{\n  \"supported\": true,\n  \"conflicting\": false,\n  \"reason\": \"Chunks provide policy and steps for downgrading and changing billing cycles.\",\n  \"claims\": [\n    {\n      \"claim\": \"Changing from an annual Pro plan to a monthly Starter plan is a plan change that requires authorization and human approval.\",\n      \"kb_id\": \"KB-014\"\n    },\n    {\n      \"claim\": \"Downgrades normally take effect at the next billing cycle; an immediate downgrade may incur prorated charges.\",\n      \"kb_id\": \"KB-012\"\n    },\n    {\n      \"claim\": \"An authorized workspace admin must approve the subscription change; support cannot change the plan without that approval.\",\n      \"kb_id\": \"KB-010\"\n    },\n    {\n      \"claim\": \"If the change is applied immediately, a prorated charge or credit will be calculated based on unused time in the current cycle.\",\n      \"kb_id\": \"KB-013\"\n    }\n  ],\n  \"conflicting_kb_ids\": []\n}",
+   "tokens_in": 1056,
+   "tokens_out": 686
+  },
+  {
+   "key": "171a7d0632bb3f7298bbf77ff19cadabbc2f057c4b9ffdc3e523549fe878b906",
+   "text": "{\n  \"category\": \"login_account_access\",\n  \"priority\": \"urgent\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The workspace is suspended and they request reactivation.\",\n    \"priority\": \"They need immediate reactivation for a business demo, indicating urgency.\",\n    \"sentiment\": \"The tone is factual without complaint, so neutral.\"\n  }\n}",
+   "tokens_in": 629,
+   "tokens_out": 367
+  },
+  {
+   "key": "54121c2037ff93c02943f49716c8a9c5a27cb10f2c79e73e7a23fcc6697a9685",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user asks why their account is flagged after seeing a past\u2011due notice despite having paid.\",\n    \"priority\": \"They risk losing access due to a billing issue, which is a high\u2011priority problem.\",\n    \"sentiment\": \"The tone is factual and concerned without anger, so neutral.\"\n  }\n}",
+   "tokens_in": 643,
+   "tokens_out": 477
+  },
+  {
+   "key": "64f8d198a3052a08603571708262e9ffa331fdf14ff18b122318aa397810159a",
+   "text": "{\"reply\":\"Thank you for your request. Changing from an annual Pro subscription to a monthly Starter plan is a plan change and requires authorization from an approved workspace admin [KB-014][KB-010]. A downgrade normally takes effect at the start of the next billing cycle; if you need it to start immediately, it may generate a prorated credit or charge based on the unused portion of your current period [KB-012][KB-013]. Please have an authorized admin open the billing settings, select the Starter monthly plan, review the effective date and any estimated invoice changes, and submit the request for approval [KB-012].\",\"citations\":[\"KB-014\",\"KB-010\",\"KB-012\",\"KB-013\"]}",
+   "tokens_in": 843,
+   "tokens_out": 598
+  },
+  {
+   "key": "9fd7bcba9379f66df639c9401a58009ce921e02ddd976db3c03773afe8de6c2e",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"Retrieved chunks do not cover workspace reactivation process.\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1044,
+   "tokens_out": 164
+  },
+  {
+   "key": "2aba4ef79002bf765f5e228dc71d3832d3cc87df2de7c15f309b23e7e8cf1c7b",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"No retrieved chunks address past due notices or account flagging\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 999,
+   "tokens_out": 242
+  },
+  {
+   "key": "6b04e5bdd5491172bef1b88cff153cd34c65708b6c0f6ccd733371bad668fd2f",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The customer explicitly asks for a refund of a specific invoice.\",\n    \"priority\": \"Refund request involves money and is treated as high priority.\",\n    \"sentiment\": \"The tone is polite and factual, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 639,
+   "tokens_out": 313
+  },
+  {
+   "key": "ae7c85d6059b7bd9dcf12835f831dc638ec606886d07574b0dc4026be0904812",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"high\",\n  \"sentiment\": \"negative\",\n  \"reasons\": {\n    \"category\": \"The user reports being charged despite a failed payment.\",\n    \"priority\": \"The issue involves an unexpected charge on a live invoice, risking money.\",\n    \"sentiment\": \"The tone is complaint and frustrated.\"\n  }\n}",
+   "tokens_in": 641,
+   "tokens_out": 277
+  },
+  {
+   "key": "4da3e2a89beaa91dcd0860d9f4f1328aa1be4712aab857270d9cde55de3eb51b",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user explicitly asks for a refund of invoice INV-0005-M3.\",\n    \"priority\": \"Refunding money involves financial impact, so it is high priority.\",\n    \"sentiment\": \"The request is factual without complaint, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 639,
+   "tokens_out": 334
+  },
+  {
+   "key": "06ee6d4219ad66c88e5460a49f18e885bed3cc874a6b5eb7ee36a547aafbabb0",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Refund policy chunks provide the necessary eligibility and process information\", \"claims\": [{\"claim\": \"Refunds are only possible within 30 days of the payment's paid_at timestamp\", \"kb_id\": \"KB-006\"}, {\"claim\": \"The requested refund amount cannot exceed the amount paid minus any prior refunds\", \"kb_id\": \"KB-006\"}, {\"claim\": \"The invoice must belong to the customer and have a successful payment\", \"kb_id\": \"KB-006\"}, {\"claim\": \"Refunds are proposals that require human approval before money is changed\", \"kb_id\": \"KB-006\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1055,
+   "tokens_out": 547
+  },
+  {
+   "key": "929824cc8ee7ebc4cad8fbfbbe5763695ed74c71f4ce9acd2808ac79a9151135",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Chunks explain failed vs pending payments and how to get support to investigate.\", \"claims\": [{\"claim\": \"A failed payment does not increase the invoice's paid balance and should not result in a charge.\", \"kb_id\": \"KB-003\"}, {\"claim\": \"A pending payment may appear as a charge on your statement but is not yet confirmed; review the payment status.\", \"kb_id\": \"KB-003\"}, {\"claim\": \"Support can investigate the issue using the invoice ID and payment timestamp.\", \"kb_id\": \"KB-003\"}, {\"claim\": \"If an invoice remains open after you see a charge, provide the invoice ID and payment confirmation to support for review.\", \"kb_id\": \"KB-002\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1070,
+   "tokens_out": 765
+  },
+  {
+   "key": "850c84731d06a475c18c0a8f21f1e6085eb179d927bdb1648044f202be7ad3f2",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Policy and procedure for refunds are covered\", \"claims\": [{\"claim\": \"Refunds are only possible within 30 days of the successful payment and cannot exceed the amount paid minus any prior refunds\", \"kb_id\": \"KB-006\"}, {\"claim\": \"Support must verify that the invoice belongs to the customer, check the payment status and paid_at time, and ensure no other open refund request exists for the same invoice\", \"kb_id\": \"KB-006\"}, {\"claim\": \"Refund requests are proposals that require human approval before any money is changed\", \"kb_id\": \"KB-006\"}, {\"claim\": \"Refund status can be pending approval, approved, rejected, executed, or failed; you should ask support for the refund request reference instead of submitting a second request\", \"kb_id\": \"KB-009\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1076,
+   "tokens_out": 543
+  },
+  {
+   "key": "01ac3a68718f4733dc772c36d1e6035baf442b590ba42c632eb9fb9e10baa074",
+   "text": "{\"reply\":\"Thank you for contacting us about invoice INV-0006-M4. Our refund policy requires that the invoice belongs to your account, the payment was successful, and the request is made within 30 days of the payment timestamp [KB-006]. The refundable amount cannot exceed the unrefunded portion of the payment [KB-006]. Refunds are proposals that must be approved by a human approver before any money is changed [KB-006]. We will verify the invoice details and payment status and then submit a refund proposal for approval. You will receive an update once the review is complete.\", \"citations\":[\"KB-006\"]}",
+   "tokens_in": 842,
+   "tokens_out": 471
+  },
+  {
+   "key": "0e0a3d64f3ab0d04edc3ddd819cb4b165bc0e2133c6d2695476899d57c27b778",
+   "text": "{\"reply\":\"Thank you for contacting us. Refunds are only possible when the request is made within 30 days of the successful payment and the amount does not exceed the unrefunded balance [KB-006]. Our team will verify that the invoice belongs to your account, that the payment was successful, and that no other open refund request exists for this invoice [KB-006]. Because refunds require human approval, we will create a refund proposal and a reviewer will assess it before any money is returned [KB-006]. You can check the status of the request using the ticket or refund reference we will provide once the proposal is submitted [KB-009].\",\"citations\":[\"KB-006\",\"KB-009\"]}",
+   "tokens_in": 863,
+   "tokens_out": 544
+  },
+  {
+   "key": "be81438f7eb18bc80d42b8b6abb48b58fd60d1072f883a26f692b6c1e838e690",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket is about an incorrect charge on an invoice.\",\n    \"priority\": \"The unexpected charge involves money and needs prompt resolution.\",\n    \"sentiment\": \"The language is factual without complaint.\"\n  }\n}",
+   "tokens_in": 668,
+   "tokens_out": 286
+  },
+  {
+   "key": "2f2e4dfc5881891c810daaa2b96792852ab5fa1781dacd52e28e913266f696b9",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"high\",\n  \"sentiment\": \"negative\",\n  \"reasons\": {\n    \"category\": \"The ticket is about unexpected invoice charges and asks for clarification.\",\n    \"priority\": \"Unexpected charge on a live invoice warrants high priority.\",\n    \"sentiment\": \"The customer expresses frustration about the billing error.\"\n  }\n}",
+   "tokens_in": 669,
+   "tokens_out": 321
+  },
+  {
+   "key": "2495876d2fea8b4ce8a739b74397902f08635e9d18037e6cf0240a90e1c11658",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"high\",\n  \"sentiment\": \"negative\",\n  \"reasons\": {\n    \"category\": \"The user reports an unexpected charge on an invoice and asks for it to be resolved.\",\n    \"priority\": \"An unexpected charge on a recent invoice involves potential monetary loss, so it is high priority.\",\n    \"sentiment\": \"The wording expresses frustration about a billing error, indicating a negative sentiment.\"\n  }\n}",
+   "tokens_in": 654,
+   "tokens_out": 194
+  },
+  {
+   "key": "f0a06ae8a8f93471ab2bc252022f6aeb4d4fbe5f5b51f869daa74b42deb25474",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The customer explicitly asks for a refund of invoice INV-0090-M1.\",\n    \"priority\": \"Refund requests are high priority because they involve money.\",\n    \"sentiment\": \"The tone is polite and factual, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 630,
+   "tokens_out": 272
+  },
+  {
+   "key": "f3493cc54ffd36de7684a9924cfa8d9436ac66670d6c5b63a01e7b303e6cea0a",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"negative\",\n  \"reasons\": {\n    \"category\": \"The ticket asks for a refund of a duplicate charge.\",\n    \"priority\": \"Refund request for a duplicate charge involves money, so high priority.\",\n    \"sentiment\": \"The customer expresses frustration about being charged twice.\"\n  }\n}",
+   "tokens_in": 635,
+   "tokens_out": 361
+  },
+  {
+   "key": "6d2dd5068bca1e1b1d5489a530aad3e399a640e42f55fb695ea156a53a6449b4",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"negative\",\n  \"reasons\": {\n    \"category\": \"Customer explicitly asks for a refund that hasn't arrived.\",\n    \"priority\": \"Refund not received is a monetary issue requiring prompt attention.\",\n    \"sentiment\": \"The tone expresses frustration about the missing refund.\"\n  }\n}",
+   "tokens_in": 637,
+   "tokens_out": 282
+  },
+  {
+   "key": "681f40aac80d18cd039e304f487a8b92f81faee39c68b699d57041e830854c3b",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The customer explicitly asks for a full refund of invoice INV-0004-M1.\",\n    \"priority\": \"Refund requests involving money back are treated as high priority.\",\n    \"sentiment\": \"The tone is factual and not complaining, so it is neutral.\"\n  }\n}",
+   "tokens_in": 649,
+   "tokens_out": 350
+  },
+  {
+   "key": "70f1e2fb9b553e6ae9179d1f1bf11568a934de9c7ae303d871e0f2a76cb5b9c9",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Chunks provide dispute review process and refund eligibility\", \"claims\": [{\"claim\": \"Support can review a disputed amount when given the invoice ID and the specific line item\", \"kb_id\": \"KB-004\"}, {\"claim\": \"Refunds are possible for successful payments made within 30 days of the payment timestamp\", \"kb_id\": \"KB-006\"}, {\"claim\": \"The refundable amount cannot exceed the amount paid minus any amount already refunded\", \"kb_id\": \"KB-006\"}, {\"claim\": \"Support will verify the invoice belongs to the customer, check payment status and paid_at time, and ensure the request is within the 30\u2011day window\", \"kb_id\": \"KB-006\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1083,
+   "tokens_out": 543
+  },
+  {
+   "key": "5d85c6c9fc1baca284b7513ba35f14de5994268e477669a7ea06d9602f34f904",
+   "text": "{\n  \"supported\": true,\n  \"conflicting\": false,\n  \"reason\": \"Chunks explain refund process and how to check status\",\n  \"claims\": [\n    {\n      \"claim\": \"Refunds are proposals that require human approval before money is changed, so the refund may still be pending approval or execution\",\n      \"kb_id\": \"KB-006\"\n    },\n    {\n      \"claim\": \"To check the current status of the refund, you should contact support with the refund request reference instead of submitting a second request\",\n      \"kb_id\": \"KB-009\"\n    },\n    {\n      \"claim\": \"Nimbus refunds are only possible within 30 days of the payment and cannot exceed the amount paid minus any prior refunds\",\n      \"kb_id\": \"KB-006\"\n    }\n  ],\n  \"conflicting_kb_ids\": []\n}",
+   "tokens_in": 1034,
+   "tokens_out": 605
+  },
+  {
+   "key": "2cabfac9d02e5d556ca0acdfd882e545bd31a89c8b07a535d5010d8342cc3c36",
+   "text": "{\n  \"supported\": true,\n  \"conflicting\": false,\n  \"reason\": \"Policy and review steps are covered by the chunks\",\n  \"claims\": [\n    {\n      \"claim\": \"Nimbus refunds are only available if the request is made within 30 days of the payment timestamp\",\n      \"kb_id\": \"KB-006\"\n    },\n    {\n      \"claim\": \"Support can review a disputed amount when provided with the invoice ID and the specific line item\",\n      \"kb_id\": \"KB-004\"\n    }\n  ],\n  \"conflicting_kb_ids\": []\n}",
+   "tokens_in": 1081,
+   "tokens_out": 505
+  },
+  {
+   "key": "829a0e9e616df46eb821dd77be30f9cd3eae41d674163b13a0bb061a67d27351",
+   "text": "{\"reply\":\"Hello, thank you for contacting us. To investigate the duplicate charge on invoice INV-0003-M4, we need to review the invoice line items and compare them with your workspace settings, including plan, seat count, billing cycle, credits, and taxes [KB-004]. Please provide the invoice ID and the specific line item you believe is duplicated, as well as any payment confirmation you have [KB-004]. Refunds are only possible for successful payments made within 30 days of the payment date, and the amount cannot exceed the unrefunded balance [KB-006]. Once we verify the payment status and timing, we can proceed with the review. Let us know if the invoice is still open or if you have a payment receipt [KB-002].\",\"citations\":[\"KB-004\",\"KB-006\",\"KB-002\"]}",
+   "tokens_in": 870,
+   "tokens_out": 746
+  },
+  {
+   "key": "070502e16b5b9e800ea4903e15878c80c438570f7de5400385b319b0fced7093",
+   "text": "{\"reply\":\"To investigate the $20.02 charge on invoice INV-0003-M3, please compare the line items on the invoice with your workspace\u2019s plan, seat count, billing cycle, credits, and taxes. A mid\u2011cycle plan change or seat adjustment can create a prorated amount, so reviewing those details helps identify the source of the charge[KB-004]. When you contact support, include the invoice ID and the specific line item you\u2019re questioning, as the invoice ID is the safest reference for any inquiry[KB-001]. Our team will then be able to examine the disputed amount for you.\", \"citations\":[\"KB-004\",\"KB-001\"]}",
+   "tokens_in": 892,
+   "tokens_out": 383
+  },
+  {
+   "key": "72de72c621caefcaab7a1e2526d761f664a74b0712b9e4bd53bb0a6665c38779",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"Customer reports being charged twice for a monthly subscription.\",\n    \"priority\": \"Double charge on an active subscription poses a financial risk, so high priority.\",\n    \"sentiment\": \"The tone is factual and polite, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 744,
+   "tokens_out": 283
+  },
+  {
+   "key": "eb3b733c71a40f46acc0ec50725a13a0e32d3e768ef220827b6998c3fbfb9ff0",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user is asking for an explanation of an unexpected charge on an invoice.\",\n    \"priority\": \"The issue involves an unexpected monetary charge, which could affect the customer's finances.\",\n    \"sentiment\": \"The tone is polite and factual without strong frustration or anger.\"\n  }\n}",
+   "tokens_in": 738,
+   "tokens_out": 228
+  },
+  {
+   "key": "e227194e45c83e777805c0a37e8ccd6e73109410873be741bfdc533b9c0eb78b",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket disputes a billed amount on invoice INV-0002-M3.\",\n    \"priority\": \"The customer reports an incorrect charge of $20.02, indicating potential financial impact.\",\n    \"sentiment\": \"The tone is factual and polite without overt frustration.\"\n  }\n}",
+   "tokens_in": 704,
+   "tokens_out": 396
+  },
+  {
+   "key": "42759deae0eb13f55f0fa98d710cf1255c6baf5e47eafdd501c7d472a317ccc3",
+   "text": "{\"reply\":\"Hello, a failed payment does not increase the invoice\u2019s paid balance and should not result in a charge. If a payment is pending it may still settle, so please check the invoice status in your billing portal. If the invoice remains open after you see a charge on your statement, provide the invoice ID (INV-0008-M4) and any payment confirmation you have so we can investigate further [KB-003][KB-002].\",\"citations\":[\"KB-003\",\"KB-002\"]}",
+   "tokens_in": 857,
+   "tokens_out": 432
+  },
+  {
+   "key": "eb29f6b5e5c9feafc31f6cc57f7d121b1323cd8616914bd52d5e0ffe5d40a0c6",
+   "text": "{\"reply\":\"Hello, I understand you\u2019re waiting for a refund on invoice INV-0002-M4. Refunds are processed as proposals that must be approved by a human before any money is transferred, and the status can be pending approval, approved, or executed [KB-009][KB-006]. To check the current status of your request, please provide the support ticket or refund request reference so we can locate it, rather than submitting a second request for the same invoice [KB-009]. Also note that refunds are only possible when the request is made within 30 days of the payment date and cannot exceed the amount originally paid [KB-006].\",\"citations\":[\"KB-009\",\"KB-006\"]}",
+   "tokens_in": 821,
+   "tokens_out": 667
+  },
+  {
+   "key": "2ff69cc26030a3227a83475ad4c78dffabe0c29e591fc128dac1327e3cac8f57",
+   "text": "{\"reply\":\"Thank you for reaching out. Our refund policy allows a refund only if the request is made within 30 days of the payment date [KB-006]. To assess your case we need to review the invoice line items for INV-0004-M1 and compare them with your workspace settings, as a mid\u2011cycle plan change can result in a prorated credit [KB-004]. Please provide the invoice ID and the specific line item you believe is incorrect, or reference the existing refund request ticket, so we can investigate further and determine the status of any pending refund [KB-009].\",\"citations\":[\"KB-006\",\"KB-004\",\"KB-009\"]}",
+   "tokens_in": 868,
+   "tokens_out": 489
+  },
+  {
+   "key": "4adc23023662d93649e53ab5d9900c7098fbbdcf6c52c0955d557d50ef88365a",
+   "text": "{\"reply\":\"Thank you for reaching out. To look into the $20 charge on invoice INV-0004\u2011M1, we\u2019ll need to compare the invoice line items with your workspace\u2019s plan, seat count, billing cycle, credits, and taxes. Please provide the invoice ID and the specific line item you\u2019re questioning so we can review the disputed amount [KB-004]. Note that a mid\u2011cycle plan or seat change can generate a prorated charge, which may explain the amount you see [KB-013]. Once we have that information, our support team can investigate further.\",\"citations\":[\"KB-004\",\"KB-013\"]}",
+   "tokens_in": 877,
+   "tokens_out": 521
+  },
+  {
+   "key": "015907d882c51fa7c9a92d23b4bc5c50c99dab6e3360b09a8bd114812ae9bc43",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Chunks provide steps to dispute and investigate the charge.\", \"claims\": [{\"claim\": \"Support can review a disputed amount when given the invoice ID and the specific line item.\", \"kb_id\": \"KB-004\"}, {\"claim\": \"Provide the invoice ID and payment confirmation to support for investigation.\", \"kb_id\": \"KB-002\"}, {\"claim\": \"Start by comparing the invoice line items with the plan, seat count, billing cycle, credits, and taxes to identify miscalculations.\", \"kb_id\": \"KB-004\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1119,
+   "tokens_out": 665
+  },
+  {
+   "key": "699e345c14ef615ad2b3aa4c90171b1a378fb1c88cd37bc9858406fae864d6dd",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Chunks provide steps to investigate and dispute unexpected invoice charges.\", \"claims\": [{\"claim\": \"To investigate the unexpected charge, start by reviewing the invoice line items and compare the plan, seat count, billing cycle, credits, and taxes with the workspace settings.\", \"kb_id\": \"KB-004\"}, {\"claim\": \"Support can review the disputed amount when you provide the invoice ID (INV-0003-M3) and the specific line item.\", \"kb_id\": \"KB-004\"}, {\"claim\": \"When contacting support, reference the invoice ID as the safest reference.\", \"kb_id\": \"KB-001\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1105,
+   "tokens_out": 573
+  },
+  {
+   "key": "3889d221a756a2f5d17d853cd640802b0eb63cd6631a8036286cc5094b4f61db",
+   "text": "{\n  \"supported\": true,\n  \"conflicting\": false,\n  \"reason\": \"Chunks provide guidance on reviewing disputed invoice amounts and possible reasons for unexpected charges.\",\n  \"claims\": [\n    {\n      \"claim\": \"Support can review the disputed $20 charge on invoice INV-0004-M1 when you provide the invoice ID and the specific line item.\",\n      \"kb_id\": \"KB-004\"\n    },\n    {\n      \"claim\": \"Start by comparing the invoice line items with your workspace\u2019s plan, seat count, billing cycle, credits, and taxes to identify any mismatches.\",\n      \"kb_id\": \"KB-004\"\n    },\n    {\n      \"claim\": \"A mid\u2011cycle plan change, seat adjustment, or trial ending can generate a prorated charge like the $20 amount you see.\",\n      \"kb_id\": \"KB-013\"\n    },\n    {\n      \"claim\": \"If this is the first invoice after a trial, the charge may be the regular billing that begins when the trial ends.\",\n      \"kb_id\": \"KB-016\"\n    }\n  ],\n  \"conflicting_kb_ids\": []\n}",
+   "tokens_in": 1090,
+   "tokens_out": 629
+  },
+  {
+   "key": "54ca1799cc5254514e2ffeb2e4270b3d2f1f38ce49070cfab3baf12cb4906bf8",
+   "text": "{\"reply\":\"Thank you for contacting us about the charge on invoice INV-0002-M2. To investigate the amount, we\u2019ll compare the line items on the invoice with your plan, seat count, billing cycle, credits, and taxes as described in our guide [KB-004]. Please provide the invoice ID and, if available, the payment confirmation so we can verify whether the invoice is still open or if a pending payment is present [KB-002]. Once we have that information, our team can review the disputed charge and determine the appropriate next steps.\",\"citations\":[\"KB-004\",\"KB-002\"]}",
+   "tokens_in": 906,
+   "tokens_out": 375
+  },
+  {
+   "key": "14f06dd0cbf289c9bbfa02c8eeb6d2b3c860394c005f1dde15968369d3138fcc",
+   "text": "{\"reply\":\"Thank you for contacting us about the $20.02 charge on invoice INV-0001-M3. To investigate, we\u2019ll compare the invoice line items with your workspace\u2019s plan, seat count, and billing cycle, as unexpected amounts can result from prorated changes or credits [KB-004]. Please confirm the invoice status (open or paid) and provide any payment confirmation you have, as an open invoice indicates Nimbus has not recorded a successful payment [KB-002]. Reviewing the invoice details against your subscription will help us determine why the charge appeared [KB-001]. If this is related to a trial ending, let us know if a payment method was on file at that time [KB-016]. Once we have this information, support can examine the disputed amount.\",\"citations\":[\"KB-004\",\"KB-002\",\"KB-001\",\"KB-016\"]}",
+   "tokens_in": 942,
+   "tokens_out": 667
+  },
+  {
+   "key": "278997a12ed215cf190b349c5e8c10841f945dbd3d85985f9b4ad7f08997a8f5",
+   "text": "{\n  \"category\": \"login_account_access\",\n  \"priority\": \"urgent\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket describes a login problem that stops users from accessing their accounts.\",\n    \"priority\": \"All users are blocked from logging in, which is an active outage needing immediate attention.\",\n    \"sentiment\": \"The wording is factual and not complaint\u2011driven, so the sentiment is neutral.\"\n  }\n}",
+   "tokens_in": 659,
+   "tokens_out": 469
+  },
+  {
+   "key": "1ded6ec51674ffb3ab592193c4f18be9fe46aa38ba784f9a7ad7d6d2e0babe58",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Chunks provide the process for investigating duplicate charges using invoice ID and payment status.\", \"claims\": [{\"claim\": \"Support can investigate duplicate charges using the invoice ID and payment timestamp.\", \"kb_id\": \"KB-003\"}, {\"claim\": \"If an invoice remains open after a successful payment, provide the invoice ID and payment confirmation to support.\", \"kb_id\": \"KB-002\"}, {\"claim\": \"Check for pending or failed payments before retrying, as duplicate charges may be due to pending attempts.\", \"kb_id\": \"KB-003\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1160,
+   "tokens_out": 469
+  },
+  {
+   "key": "f1deb9498339a94cdc45c9784a58633e8d6dff0cd028f8fdbe0d25464b831f42",
+   "text": "{\n  \"supported\": true,\n  \"conflicting\": false,\n  \"reason\": \"Chunks give guidance on investigating unexpected invoice amounts and how to request a review with the invoice ID.\",\n  \"claims\": [\n    {\n      \"claim\": \"Start by reviewing the invoice line items and compare the plan, seat count, billing cycle, credits, and taxes with your workspace settings to identify any prorated charges.\",\n      \"kb_id\": \"KB-004\"\n    },\n    {\n      \"claim\": \"Support can review a disputed amount when you provide the invoice ID (INV-0001-M3) and the specific line item.\",\n      \"kb_id\": \"KB-004\"\n    },\n    {\n      \"claim\": \"If the invoice remains open after a successful payment, include the invoice ID and payment confirmation when contacting support.\",\n      \"kb_id\": \"KB-002\"\n    }\n  ],\n  \"conflicting_kb_ids\": []\n}",
+   "tokens_in": 1155,
+   "tokens_out": 1005
+  },
+  {
+   "key": "425cdc66cd2eb181a71b298b265835edb09c0683f24fc7b50af3a3a9b445a68a",
+   "text": "{\"supported\":true,\"conflicting\":false,\"reason\":\"Chunks provide guidance on investigating unexpected invoice amounts and how support can review disputed charges.\",\"claims\":[{\"claim\":\"Start by reviewing the invoice line items and compare the plan, seat count, billing cycle, credits, and taxes with the workspace settings.\",\"kb_id\":\"KB-004\"},{\"claim\":\"Support can review a disputed amount when you provide the invoice ID (INV-0002-M3) and the specific line item.\",\"kb_id\":\"KB-004\"},{\"claim\":\"Check the billing period, plan, and any seat changes, as these can cause prorated charges.\",\"kb_id\":\"KB-001\"},{\"claim\":\"Each Nimbus invoice lists the workspace, billing period, plan, seats, taxes, credits, and total, which you should verify.\",\"kb_id\":\"KB-001\"},{\"claim\":\"If a plan change occurred mid\u2011cycle, a proration charge may appear; the exact amount is shown as a line item on the invoice.\",\"kb_id\":\"KB-008\"}],\"conflicting_kb_ids\":[]}",
+   "tokens_in": 1105,
+   "tokens_out": 1061
+  },
+  {
+   "key": "f0a8b0bce0518923a54d10e4a45f66e7bbbaf792c645e368e95b3fa8221d4179",
+   "text": "{\"reply\":\"Thank you for contacting us. Our records show that a double charge can occur when one payment is still pending while another is submitted. Please verify the status of each invoice; an open invoice indicates Nimbus has not recorded a successful payment [KB-002]. If you see a pending payment, it has not been confirmed yet and will not affect the paid balance [KB-003]. To investigate further, kindly share the invoice ID (e.g., INV-0001-M2) and any payment confirmation you received from your bank. Our team will review the invoice and payment timestamps and get back to you.\",\"citations\":[\"KB-002\",\"KB-003\"]}",
+   "tokens_in": 947,
+   "tokens_out": 522
+  },
+  {
+   "key": "68af075f3308c205122333aa70a80cafb0e1d245d684338d08eec07819a38bba",
+   "text": "{\"reply\":\"Thank you for contacting us about the charge on invoice INV-0002-M3. To investigate the discrepancy we will compare the invoice line items with your workspace\u2019s plan, seat count, billing cycle, credits and taxes, as these factors can create prorated charges or credits [KB-004]. Please provide the specific line item you believe is incorrect, or any supporting details, so we can review the invoice using the invoice ID you supplied [KB-001]. Once we have that information our team will examine the records and get back to you with our findings.\", \"citations\":[\"KB-004\",\"KB-001\"]}",
+   "tokens_in": 892,
+   "tokens_out": 440
+  },
+  {
+   "key": "d9cffe6ae2c6041b7468e3cc0ad4c89b5eabc8fc6e4789abc334a04ab0e3b477",
+   "text": "{\n  \"category\": \"login_account_access\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user reports intermittent login problems after an authentication update.\",\n    \"priority\": \"The issue is inconvenient but not an outage or money\u2011critical, so medium priority.\",\n    \"sentiment\": \"The tone is polite and factual, indicating a neutral sentiment.\"\n  }\n}",
+   "tokens_in": 735,
+   "tokens_out": 179
+  },
+  {
+   "key": "13732324439ea1b1e42463b3031982d1fee7f109367aeaec41715d82cdecbafd",
+   "text": "{\n  \"category\": \"login_account_access\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"User cannot log in despite attempts to reset password.\",\n    \"priority\": \"Login issue blocks access, requiring prompt resolution.\",\n    \"sentiment\": \"The tone is factual without strong complaint.\"\n  }\n}",
+   "tokens_in": 651,
+   "tokens_out": 210
+  },
+  {
+   "key": "012b01dba8808763a018306b4e5a7712023a74edbfd70dd8914445af09fdc86e",
+   "text": "{\n  \"supported\": true,\n  \"conflicting\": false,\n  \"reason\": \"Chunks provide troubleshooting steps for login issues.\",\n  \"claims\": [\n    {\n      \"claim\": \"Check the Nimbus status page for any active incidents before retrying login attempts.\",\n      \"kb_id\": \"KB-029\"\n    },\n    {\n      \"claim\": \"If SSO is enabled, verify the SSO configuration and test with an administrator account before enforcing SSO.\",\n      \"kb_id\": \"KB-018\"\n    },\n    {\n      \"claim\": \"If password resets fail, have an authorized workspace administrator verify the account address or use the identity provider's recovery process.\",\n      \"kb_id\": \"KB-017\"\n    }\n  ],\n  \"conflicting_kb_ids\": []\n}",
+   "tokens_in": 1077,
+   "tokens_out": 543
+  },
+  {
+   "key": "71323cc1be7b659c583cc5875fc9864a436f9a9e8451a5d0f2c913b004917392",
+   "text": "{\n  \"supported\": true,\n  \"conflicting\": false,\n  \"reason\": \"Chunks provide password reset and MFA recovery steps relevant to login issues.\",\n  \"claims\": [\n    {\n      \"claim\": \"Use the password\u2011reset flow when a user cannot sign in; the reset email is sent to the address associated with the Nimbus account.\",\n      \"kb_id\": \"KB-017\"\n    },\n    {\n      \"claim\": \"If the password reset still fails, ask an authorized workspace administrator to verify the account address.\",\n      \"kb_id\": \"KB-017\"\n    },\n    {\n      \"claim\": \"If MFA is enabled and you lack a session or recovery code, use a saved recovery code or an existing authenticated session to update MFA.\",\n      \"kb_id\": \"KB-019\"\n    },\n    {\n      \"claim\": \"If neither a session nor a recovery code is available, an authorized workspace administrator must verify ownership before support can assist.\",\n      \"kb_id\": \"KB-019\"\n    }\n  ],\n  \"conflicting_kb_ids\": []\n}",
+   "tokens_in": 1108,
+   "tokens_out": 617
+  },
+  {
+   "key": "93c87991f5c0f6fe125a4aa1e4fc9f9ec0d942a39598b1093f57237b4ad57d78",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Relevant KBs provide troubleshooting steps for sync issues\", \"claims\": [{\"claim\": \"Check the integration connection, the last successful sync time, and whether the provider reports an outage\", \"kb_id\": \"KB-025\"}, {\"claim\": \"If duplicate records are present, verify the external object ID and event history before deleting anything and avoid bulk-deleting records\", \"kb_id\": \"KB-026\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1106,
+   "tokens_out": 476
+  },
+  {
+   "key": "aeba979d92c0f4496b40f141e62576eddb55a6b3df6aad98409b29f1c4501b71",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Password reset guidance and alternative recovery steps are provided.\", \"claims\": [{\"claim\": \"Use the password-reset flow: open the sign\u2011in page, select Forgot password, enter the account email, and follow the reset link.\", \"kb_id\": \"KB-017\"}, {\"claim\": \"If the reset still fails, ask an authorized workspace administrator to verify the account address.\", \"kb_id\": \"KB-017\"}, {\"claim\": \"If the account uses SSO, use the identity provider's recovery process instead of repeatedly requesting a Nimbus password reset.\", \"kb_id\": \"KB-017\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1048,
+   "tokens_out": 553
+  },
+  {
+   "key": "e4fc99a291d46935d7ccd197f4becc073c920e74d7814bd0b5cedba81b99af16",
+   "text": "{\"reply\":\"Hi, please first check the Nimbus status page for any active incidents and note the incident ID before retrying the login [KB-029]. If the status page is clear, verify that your Single Sign\u2011On configuration is correct; test with an administrator account and ensure you have a verified admin session available while testing to avoid lockout [KB-018]. If users are locked out and the account uses SSO, follow the identity provider\u2019s recovery process rather than repeatedly requesting a Nimbus password reset [KB-017]. Should the issue persist after these steps, our support team will need to investigate further.\",\"citations\":[\"KB-029\",\"KB-018\",\"KB-017\"]}",
+   "tokens_in": 864,
+   "tokens_out": 585
+  },
+  {
+   "key": "ca39100e4e962041228bb8fdff40ecf50495dbc44de8c1b5d7edc6d67779391d",
+   "text": "{\"reply\":\"Hi, sorry to hear about the login issues. Please try the password\u2011reset flow; the reset email will be sent only to the address already linked to your Nimbus account and support will never ask for your current password or a one\u2011time code [KB-017]. If your account uses SSO, follow your identity provider\u2019s recovery process instead of repeatedly requesting a Nimbus password reset [KB-017]. For multi\u2011factor authentication problems, use a saved recovery code or an existing authenticated session to update MFA; recovery codes are single\u2011use and should be kept offline [KB-019]. If you have no session or recovery code, an authorized workspace administrator must verify ownership before we can assist further [KB-019]. Let us know the outcome or provide any error details so we can continue troubleshooting.\",\"citations\":[\"KB-017\",\"KB-019\"]}",
+   "tokens_in": 895,
+   "tokens_out": 1254
+  },
+  {
+   "key": "db95385f81526343f38022fca4cebff63b30616b38dde7fc45317f31a1e7a518",
+   "text": "{\"reply\":\"Please try the password\u2011reset flow: go to the sign\u2011in page, select \u201cForgot password\u201d, enter your account email, and follow the link in the reset email. Check that the address is correct and look in spam or corporate filters if the email does not arrive; each new request invalidates previous links [KB-017]. If your account uses SSO, use your identity provider\u2019s recovery process instead of requesting another Nimbus password reset [KB-017]. If the reset still fails, ask an authorized workspace administrator to verify the account address for you [KB-017].\", \"citations\":[\"KB-017\"]}",
+   "tokens_in": 835,
+   "tokens_out": 461
+  },
+  {
+   "key": "af1bc65d93dfeacedf0236ddd766814563d0b4d52a5614cbed5af9a5a1c5c88d",
+   "text": "{\n  \"category\": \"login_account_access\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"Multiple users cannot log in despite password resets.\",\n    \"priority\": \"Issue prevents access for several users, requiring prompt resolution.\",\n    \"sentiment\": \"The tone is polite and factual.\"\n  }\n}",
+   "tokens_in": 683,
+   "tokens_out": 293
+  },
+  {
+   "key": "fae3487dbef91370e58fdba52d6f6f10a62070dec3b61f0151277d88cdf82c63",
+   "text": "{\n  \"category\": \"sync_issues\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket describes problems syncing Monday.com and Airtable.\",\n    \"priority\": \"User requests a prompt resolution but no money or access is at risk, so medium priority.\",\n    \"sentiment\": \"The language is factual and polite, indicating a neutral sentiment.\"\n  }\n}",
+   "tokens_in": 670,
+   "tokens_out": 294
+  },
+  {
+   "key": "83727897e0b54d8cfedfd701b9b23a452dd67b7123a003b3d6bfe8ecf1ad50df",
+   "text": "{\n  \"category\": \"sync_issues\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user reports data synchronization problems during the update process.\",\n    \"priority\": \"The issue is a functional problem without immediate financial impact, so medium priority.\",\n    \"sentiment\": \"The tone is factual and not expressing strong frustration, so neutral.\"\n  }\n}",
+   "tokens_in": 649,
+   "tokens_out": 331
+  },
+  {
+   "key": "a163ff459f9b9e0e4245ece9a3542b99ff978ebe7557d95d1c34cd51375b1567",
+   "text": "{\n  \"supported\": true,\n  \"conflicting\": false,\n  \"reason\": \"The chunks provide troubleshooting steps for login issues and password resets.\",\n  \"claims\": [\n    {\n      \"claim\": \"Check the Nimbus status page for any active incidents before retrying login.\",\n      \"kb_id\": \"KB-029\"\n    },\n    {\n      \"claim\": \"Use the password\u2011reset flow: click Forgot password, enter the account email, follow the reset email link, and choose a new password.\",\n      \"kb_id\": \"KB-017\"\n    },\n    {\n      \"claim\": \"If the reset still fails, have an authorized workspace administrator verify the account email address.\",\n      \"kb_id\": \"KB-017\"\n    },\n    {\n      \"claim\": \"For accounts that use SSO, follow the identity provider\u2019s recovery process instead of repeatedly requesting a Nimbus password reset.\",\n      \"kb_id\": \"KB-017\"\n    }\n  ],\n  \"conflicting_kb_ids\": []\n}",
+   "tokens_in": 1106,
+   "tokens_out": 679
+  },
+  {
+   "key": "6b2d1ada6e74a42d7b6e1b77a7682939f5946fc91dd7dd5e6352795affb33cae",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Chunks provide troubleshooting steps for sync issues.\", \"claims\": [{\"claim\": \"Check the integration connection, last successful sync time, and whether the provider reports an outage\", \"kb_id\": \"KB-025\"}, {\"claim\": \"Verify that a workspace admin has installed the integration and has proper permissions\", \"kb_id\": \"KB-028\"}, {\"claim\": \"Ensure the integration is connected to the intended workspace and grant only the requested scopes\", \"kb_id\": \"KB-024\"}, {\"claim\": \"If duplicate records appear, review external object IDs and integration logs before deleting\", \"kb_id\": \"KB-026\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1069,
+   "tokens_out": 496
+  },
+  {
+   "key": "d0cffe222b6a46d8df8e931be3f12827e9575aa0b8f580a89386598eaaa753f2",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"KB-025 provides troubleshooting steps for sync issues.\", \"claims\": [{\"claim\": \"Check the integration connection, the last successful sync time, and whether the provider reports an outage; record any error and provide the integration name, affected object type, and approximate start time before attempting to reconnect.\", \"kb_id\": \"KB-025\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1025,
+   "tokens_out": 377
+  },
+  {
+   "key": "e77b9cdc3dfa5af66435839036772502d8ea8a46e85c6fcf5b1298345c69d2a5",
+   "text": "{\n  \"category\": \"sync_issues\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket describes data inconsistencies caused by synchronization errors.\",\n    \"priority\": \"It's a real problem needing assistance but not an immediate financial or access emergency.\",\n    \"sentiment\": \"The language is polite and factual without complaint.\"\n  }\n}",
+   "tokens_in": 702,
+   "tokens_out": 297
+  },
+  {
+   "key": "a6b85cc476feca5062bee9d3062ffe229c21919ac4d2460ced77ef003ac01082",
+   "text": "{\"reply\":\"Thank you for contacting us. Please first verify whether there is an active incident on the Nimbus status page; if the page shows no outage, try signing in again after a short wait [KB-029]. If the problem persists, use the password\u2011reset flow: open the sign\u2011in page, select\u202fForgot password, enter the account email, and follow the link in the reset email, checking spam and ensuring the address is correct [KB-017]. For accounts that use SSO, follow your identity provider\u2019s recovery process instead of requesting another Nimbus password reset [KB-017]. If these steps do not resolve the issue, an authorized workspace administrator can verify the account address and further investigate [KB-017].\",\"citations\":[\"KB-029\",\"KB-017\"]}",
+   "tokens_in": 893,
+   "tokens_out": 499
+  },
+  {
+   "key": "a564387b27899b03e56197689b7eb05e6882d32e365d4ceee333665de3c8e7fb",
+   "text": "{\"reply\":\"Hi, sorry to hear about the sync issue. Please check the integration connection and note the last successful sync time, and verify whether the provider is reporting any outage [KB-025]. Record any error messages and confirm the integration is connected to the correct workspace before attempting a reconnect [KB-025]. If you are not a workspace admin, ask an admin to review your permissions, as only admins can change sync settings [KB-028]. Should the problem persist after these checks, please provide the integration name, the type of objects affected, and the approximate time the issue started so we can investigate further [KB-025].\",\"citations\":[\"KB-025\",\"KB-028\"]}",
+   "tokens_in": 812,
+   "tokens_out": 771
+  },
+  {
+   "key": "e715db6b1fa2fe05880d64f2e3c67f42e5996588bd9ff7c3a640b55adada6922",
+   "text": "{\n  \"category\": \"sync_issues\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user reports problems syncing data between analytical tools.\",\n    \"priority\": \"The issue affects functionality but does not involve money or access, so medium priority.\",\n    \"sentiment\": \"The tone is factual without complaint, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 662,
+   "tokens_out": 307
+  },
+  {
+   "key": "56eb83c3c0c920b7a53e410c487c50f8cb0d85c3855a9aaf7c271458f99fdcf8",
+   "text": "{\n  \"category\": \"api_integration\",\n  \"priority\": \"low\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The customer asks for guidance on integrating Redis via the API.\",\n    \"priority\": \"It's a request for documentation and examples, not an urgent issue.\",\n    \"sentiment\": \"The tone is polite and factual.\"\n  }\n}",
+   "tokens_in": 674,
+   "tokens_out": 250
+  },
+  {
+   "key": "640f10016f20f9671ce37bd33f300951033d7083878cd1bfc0ef31af5ed86c13",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"The chunks provide step\u2011by\u2011step troubleshooting for sync issues.\", \"claims\": [{\"claim\": \"Check the integration connection, the last successful sync time, and whether the provider reports an outage before retrying.\", \"kb_id\": \"KB-025\"}, {\"claim\": \"Verify the Nimbus service status page for any active incidents and record the incident ID before retrying requests.\", \"kb_id\": \"KB-029\"}, {\"claim\": \"Ensure the user has workspace admin permissions to install or modify integrations, as only admins can change sync settings.\", \"kb_id\": \"KB-028\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1039,
+   "tokens_out": 521
+  },
+  {
+   "key": "8ff93ef99d5b3948687c8ae9cd08a99b5325d53c9a33fd73409e219e427f87a0",
+   "text": "{\"reply\":\"Please start by checking the Nimbus status page for any active incidents and note the incident ID and first observed time before retrying the sync [KB-029]. Next, verify the integration connection: confirm the provider name, review the last successful sync time, and ensure the correct workspace is selected in Settings\u202f\u2192\u202fIntegrations [KB-025]. If the connection appears failed, re\u2011connect the integration and grant only the requested scopes, making sure it is linked to the intended workspace [KB-024]. Finally, confirm that a workspace admin has reviewed the integration permissions, as only admins can modify sync mappings and may need to adjust access [KB-028]. If the issue persists after these steps, please provide the error details and timestamps for further investigation.\",\"citations\":[\"KB-029\",\"KB-025\",\"KB-024\",\"KB-028\"]}",
+   "tokens_in": 826,
+   "tokens_out": 412
+  },
+  {
+   "key": "3117d7bbbeb7e15601cab0788a82f07c4c96cdb9887c6aeaadda76bd13539523",
+   "text": "{\"reply\":\"Thank you for contacting us. To investigate the sync inconsistencies, please start by checking the integration connection and the last successful sync time, and confirm the provider is not reporting an outage [KB-025]. Record any error messages and verify the correct workspace is selected before reconnecting. Review the event history and external object IDs for a sample of records to see if duplicate entries were created; avoid bulk\u2011deleting records as a fix [KB-026]. Also ensure the integration is connected to the intended workspace and that only the required scopes were granted [KB-024]. If the issue persists, please provide the integration name, affected object type, and the approximate time the problem began so we can further assist.\", \"citations\":[\"KB-025\",\"KB-026\",\"KB-024\"]}",
+   "tokens_in": 893,
+   "tokens_out": 752
+  },
+  {
+   "key": "a5f17c4214cbea11c7397e19e469bf68436536872cd8ba61868fb79632d3255a",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"Retrieved chunks do not address the invoicing discrepancy integration issue\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1157,
+   "tokens_out": 358
+  },
+  {
+   "key": "26d6dff1712c364ce37fce259e579dcb6ac08a084f10c888f8eb8e538ef0ceee",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"Retrieved chunks do not contain information about the current API version.\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1127,
+   "tokens_out": 229
+  },
+  {
+   "key": "90254a66e6a39a08f9e9ab27ce163630b6ff1be1713d333fcdc1c7a7d8740548",
+   "text": "{\n  \"category\": \"api_integration\",\n  \"priority\": \"low\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket asks how to integrate Ableton Live with GitLab, which is an integration question.\",\n    \"priority\": \"It's a request for documentation and steps, a typical how\u2011to query, so low priority.\",\n    \"sentiment\": \"The tone is polite and informational, showing no frustration.\"\n  }\n}",
+   "tokens_in": 716,
+   "tokens_out": 333
+  },
+  {
+   "key": "8ccc56148a2af0d88cc2d047bd8ff54bfec94a4c8d223307768a00f42b070191",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"The retrieved chunks do not address Ableton Live and GitLab integration steps or requirements.\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1190,
+   "tokens_out": 153
+  },
+  {
+   "key": "ac1c812a5e0a3f4891a21a9701e12d179689bb5c5d6f32d973ac8b322d2243f7",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"KB-004 provides guidance on investigating unexpected charges and how support can review disputed amounts\", \"claims\": [{\"claim\": \"Start by reviewing the invoice line items and compare the plan, seat count, billing cycle, credits, and taxes with the workspace settings\", \"kb_id\": \"KB-004\"}, {\"claim\": \"Support can review a disputed amount when you provide the invoice ID and the specific line item\", \"kb_id\": \"KB-004\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1095,
+   "tokens_out": 451
+  },
+  {
+   "key": "3414c166038a78880547f8f06e9c2abbae7c1b1c9ede9b0f02a1fa7c53e7c111",
+   "text": "{\"reply\":\"Hi, sorry to hear about the sync issue. Please check the integration connection, the last successful sync time, and whether the provider reports an outage; record any error and confirm the correct workspace before reconnecting [KB-025]. Verify the integration is set up from Settings\u202f\u2192\u202fIntegrations, that the requested scopes are granted, and that it is connected to the intended workspace [KB-024]. Also ensure a workspace admin has installed the integration and can change sync mappings, as project members may lack permission [KB-028]. If duplicate records appear, review the external object ID and integration logs before deleting anything [KB-026]. Provide the provider name, affected object type, and approximate start time if the problem continues.\", \"citations\":[\"KB-025\",\"KB-024\",\"KB-028\",\"KB-026\"]}",
+   "tokens_in": 856,
+   "tokens_out": 1307
+  },
+  {
+   "key": "bb6222e6830d09855dbd6d4185ab080a6d3aca8419698562ec91dbabc674f0c0",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"Retrieved chunks do not provide Redis integration documentation or related details\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1079,
+   "tokens_out": 178
+  },
+  {
+   "key": "1bdb81d60e251b4c94d7d3f38a12f9d5d3941479d1979aefb1627239576ed859",
+   "text": "{\n  \"category\": \"sync_issues\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket reports invoicing discrepancies likely caused by data synchronization failures.\",\n    \"priority\": \"They request a prompt solution but no immediate financial loss is indicated.\",\n    \"sentiment\": \"The language is polite and factual without complaint.\"\n  }\n}",
+   "tokens_in": 703,
+   "tokens_out": 460
+  },
+  {
+   "key": "83335f55eb6c8609da02854d58c5a928b9bb8ee2369519227db9a739a2afea5a",
+   "text": "{\n  \"category\": \"api_integration\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user reports a failing JIRA integration due to a possible API version mismatch.\",\n    \"priority\": \"The problem impacts functionality but involves no money or outage, so it is medium priority.\",\n    \"sentiment\": \"The tone is polite and factual, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 708,
+   "tokens_out": 358
+  },
+  {
+   "key": "098f707978b32655f21dee636cc7ef245b1bb82b906014fa46c62c83e2752f02",
+   "text": "{\n  \"category\": \"api_integration\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The user reports a failure integrating Smartsheet with Azure due to API compatibility.\",\n    \"priority\": \"The issue is a functional problem needing assistance, not an immediate outage, so medium priority.\",\n    \"sentiment\": \"The tone is factual without strong negative language, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 631,
+   "tokens_out": 323
+  },
+  {
+   "key": "5b152a32c7c7b3a0693d77686be5f0dcbc4cf4ea96506ee84aee09f953a86d19",
+   "text": "{\"supported\":true,\"conflicting\":false,\"reason\":\"Chunks provide troubleshooting steps for integration failures and permission requirements.\",\"claims\":[{\"claim\":\"Only workspace admins can install integrations or change sync mappings; ensure an admin reviews permissions before changing the connection.\",\"kb_id\":\"KB-028\"},{\"claim\":\"Start from Settings \u2192 Integrations, select the provider, grant the requested scopes, confirm the connection, and for a failed connection provide the provider name and error code.\",\"kb_id\":\"KB-024\"}],\"conflicting_kb_ids\":[]}",
+   "tokens_in": 1006,
+   "tokens_out": 875
+  },
+  {
+   "key": "39d02af8e02abbd2b89a2df92a22d49cfbb2911f5024add5fcad85ec946a7309",
+   "text": "{\n  \"category\": \"security_incident\",\n  \"priority\": \"urgent\",\n  \"sentiment\": \"negative\",\n  \"reasons\": {\n    \"category\": \"The ticket reports unauthorized charges and possible account compromise, fitting a security incident.\",\n    \"priority\": \"The issue involves potential fraud and immediate investigation, so it is urgent.\",\n    \"sentiment\": \"The tone expresses concern and frustration, indicating negative sentiment.\"\n  }\n}",
+   "tokens_in": 677,
+   "tokens_out": 406
+  },
+  {
+   "key": "a057fa63bcf96470a9d6c8d90cb810fa31ae4420dc791bda438954d56f1a497d",
+   "text": "{\"reply\":\"Thank you for reaching out. To troubleshoot the Smartsheet\u2011Azure integration, please ensure that a workspace admin has installed the integration and that you have the necessary workspace permissions [KB-028]. Begin the setup from Settings\u202f\u2192\u202fIntegrations, select the Azure provider, and grant only the requested scopes, confirming the integration is linked to the correct workspace [KB-024]. If the connection still fails, please provide the provider name and any error code you received so we can investigate further [KB-024].\",\"citations\":[\"KB-028\",\"KB-024\"]}",
+   "tokens_in": 793,
+   "tokens_out": 495
+  },
+  {
+   "key": "c40fd308e14cc0c283b64e0f30ad8f00b966b449ab7c02f7d054366916ba3228",
+   "text": "{\n  \"category\": \"security_incident\",\n  \"priority\": \"urgent\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket reports an unauthorized data breach.\",\n    \"priority\": \"A data breach is an active security incident requiring urgent attention.\",\n    \"sentiment\": \"The language is factual without complaint, indicating neutral sentiment.\"\n  }\n}",
+   "tokens_in": 634,
+   "tokens_out": 263
+  },
+  {
+   "key": "59a86ed046d0a9abc2810bb2c3de68cda6b1527bc2b69af6651784adbb5c55a3",
+   "text": "{\"reply\":\"Thank you for reaching out. To investigate the unauthorized charges, please share the invoice ID and the specific line items you see so we can review them\u202f[KB-004]. Our team will compare the plan, seat count, billing cycle, credits, and taxes with your workspace settings to identify any discrepancies\u202f[KB-004]. Once we have that information we can review the disputed amount and determine the next steps\u202f[KB-004].\",\"citations\":[\"KB-004\"]}",
+   "tokens_in": 882,
+   "tokens_out": 429
+  },
+  {
+   "key": "33d05429e51bbf217e1f7b015f60451454ed7e9113458690132996af374ce01a",
+   "text": "{\"supported\":false,\"conflicting\":false,\"reason\":\"Retrieved chunks do not address data breach response\",\"claims\":[],\"conflicting_kb_ids\":[]}",
+   "tokens_in": 1078,
+   "tokens_out": 287
+  },
+  {
+   "key": "35f71c9937e7415695d69712f3b22f83b3aed2009452c94ab21203182baa96c9",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"Retrieved chunks do not address data analytics tools for investment optimization.\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1032,
+   "tokens_out": 130
+  },
+  {
+   "key": "1ff2e615f644f4d526d04d43b0aeb555eb8abc2c96fc01eeaa4d9ec19f917f12",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"Chunks do not provide the refund processing time\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 987,
+   "tokens_out": 339
+  },
+  {
+   "key": "4ecb1de282c44f48d5d9666fd1ea797f0e970f9a43c6497a3e90044100d42346",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The customer explicitly asks for a refund of invoice INV-0005-M1.\",\n    \"priority\": \"Refunding money involves a financial transaction, so it's high priority.\",\n    \"sentiment\": \"The request is polite and factual, showing no negative emotion.\"\n  }\n}",
+   "tokens_in": 637,
+   "tokens_out": 347
+  },
+  {
+   "key": "6ebe96426fec7d6da58914187eb1efe6a99105de390c000abea5ecc097499973",
+   "text": "{\n  \"category\": \"plan_change\",\n  \"priority\": \"medium\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"User requests to upgrade from Starter to Pro.\",\n    \"priority\": \"Request is a standard plan change without immediate financial risk.\",\n    \"sentiment\": \"The tone is polite and factual.\"\n  }\n}",
+   "tokens_in": 636,
+   "tokens_out": 263
+  },
+  {
+   "key": "f618f42fbe27a14288b85786dc409080524c62d73e7f6a323a5b560e71675ccc",
+   "text": "{\n  \"category\": \"security_incident\",\n  \"priority\": \"urgent\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket reports recurrent security violations across multiple products.\",\n    \"priority\": \"Ongoing security incidents require immediate attention, meeting the urgent criteria.\",\n    \"sentiment\": \"The wording is factual and not expressing frustration, so it is neutral.\"\n  }\n}",
+   "tokens_in": 647,
+   "tokens_out": 263
+  },
+  {
+   "key": "ff9252a473a1daa137b757740e45e6e91287107c4efc08a583a1ed61b4a069f5",
+   "text": "{\"supported\": false, \"conflicting\": false, \"reason\": \"Retrieved chunks do not address security incidents or related troubleshooting\", \"claims\": [], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1023,
+   "tokens_out": 210
+  },
+  {
+   "key": "3402a3a6ac7307554684fd6256106993a16f412e16f4639925f52ceb296fb7bb",
+   "text": "{\n  \"category\": \"other\",\n  \"priority\": \"low\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket asks for information about data analytics tools, not fitting any specific support category.\",\n    \"priority\": \"It is a general informational request with no urgency or impact on service.\",\n    \"sentiment\": \"The tone is polite and neutral.\"\n  }\n}",
+   "tokens_in": 691,
+   "tokens_out": 279
+  },
+  {
+   "key": "4b7930671539b5b85500e5ddb8db0089b188d681d109e8a45671885fcb888bb8",
+   "text": "{\n  \"category\": \"invoice_question\",\n  \"priority\": \"low\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket asks about refund approval criteria and timing, which is a refund policy question.\",\n    \"priority\": \"It is a informational request with no immediate financial impact, so it is low priority.\",\n    \"sentiment\": \"The tone is factual and inquisitive, indicating a neutral sentiment.\"\n  }\n}",
+   "tokens_in": 640,
+   "tokens_out": 214
+  },
+  {
+   "key": "46335e20939a9d9192d1c170e36d775475f9c198c7264f0544fdb291a3da5d8c",
+   "text": "{\n  \"category\": \"refund_request\",\n  \"priority\": \"high\",\n  \"sentiment\": \"neutral\",\n  \"reasons\": {\n    \"category\": \"The ticket asks for a refund of invoice INV-0005-M2.\",\n    \"priority\": \"Refund requests are treated as high priority because they involve money.\",\n    \"sentiment\": \"The tone is a straightforward request without complaint, so neutral.\"\n  }\n}",
+   "tokens_in": 651,
+   "tokens_out": 363
+  },
+  {
+   "key": "c4e67dba901ac09694f0c291bcc025a96d67d298f3b7fab9af69f399edc027c7",
+   "text": "{\"supported\": true, \"conflicting\": false, \"reason\": \"Policy and steps for refunds are covered\", \"claims\": [{\"claim\": \"Cancellation does not automatically result in a refund; a refund must be requested and approved.\", \"kb_id\": \"KB-015\"}, {\"claim\": \"Nimbus may refund a successful payment if the request is made within 30 days of the payment's paid_at timestamp.\", \"kb_id\": \"KB-006\"}, {\"claim\": \"The refundable amount cannot exceed the amount paid minus any prior refunds.\", \"kb_id\": \"KB-006\"}, {\"claim\": \"Support will verify the invoice belongs to the customer, confirm the payment status, and ensure the request is within the 30\u2011day window.\", \"kb_id\": \"KB-006\"}, {\"claim\": \"Refund amounts are based on the line\u2011item credit shown on the invoice; do not estimate a refund from the plan price alone.\", \"kb_id\": \"KB-008\"}], \"conflicting_kb_ids\": []}",
+   "tokens_in": 1080,
+   "tokens_out": 689
+  },
+  {
+   "key": "f0247b94bb09ea91ae8a5b476df413e1d890e8fbb922c0e2a1be12985b3ac2fa",
+   "text": "{\"supported\":true,\"conflicting\":false,\"reason\":\"Chunks describe how to request a plan upgrade and set the effective date to the next billing cycle\",\"claims\":[{\"claim\":\"A workspace admin can request an upgrade from Settings \u2192 Billing \u2192 Change plan\",\"kb_id\":\"KB-011\"},{\"claim\":\"The upgrade request must identify the current and target plans and specify whether it starts now or at the next billing cycle\",\"kb_id\":\"KB-011\"},{\"claim\":\"Review the target plan's features, seat limits, billing cycle, and any prorated charge before confirming the upgrade\",\"kb_id\":\"KB-011\"}],\"conflicting_kb_ids\":[]}",
+   "tokens_in": 1075,
+   "tokens_out": 635
+  },
+  {
+   "key": "6cfa64f0b01c52c6a05635f3d3cccd650c6dfbf0ed8d5205d25b5ce2d5a08775",
+   "text": "{\"supported\":true,\"conflicting\":false,\"reason\":\"Policy requires human approval for refunds\",\"claims\":[{\"claim\":\"Refunds require a recorded human approval before execution\",\"kb_id\":\"KB-006\"},{\"claim\":\"Every refund still requires a recorded human approval before execution\",\"kb_id\":\"KB-007\"},{\"claim\":\"Refund request can be pending approval, approved, rejected, executed, or failed\",\"kb_id\":\"KB-009\"}],\"conflicting_kb_ids\":[]}",
+   "tokens_in": 1042,
+   "tokens_out": 551
+  },
+  {
+   "key": "9df8f9655cb4d029343e96b3ff1d4aea9941ebca99aa4435c36519a110c707a9",
+   "text": "{\"reply\":\"Hello, thank you for reaching out. Canceling a workspace does not automatically generate a refund; a refund request must be reviewed by our support team [KB-015]. According to our refund policy, a refund can be issued only if the payment was successful, the request is made within 30 days of the payment, and the amount does not exceed the unrefunded balance on the invoice [KB-006]. To proceed, we\u2019ll need to verify the payment status and the date the invoice was paid. Please confirm the payment date or provide any related payment confirmation, and we\u2019ll investigate the refund eligibility for invoice INV-0005-M1.\",\"citations\":[\"KB-015\",\"KB-006\"]}",
+   "tokens_in": 867,
+   "tokens_out": 479
+  },
+  {
+   "key": "42dc4aa31d32828d9cc4553cd8d386871b17ccacb73ed7f086d4d63d7e18807b",
+   "text": "{\"reply\":\"Thank you for contacting us. An authorized workspace admin can upgrade from Starter to Pro by going to Settings\u202f\u2192\u202fBilling\u202f\u2192\u202fChange plan, reviewing the Pro plan\u2019s features and seat limits, and submitting the request with the desired effective date\u202f[KB-011]. When you submit the upgrade, choose the next billing cycle as the start date so the change takes effect then and does not alter the current invoice\u202f[KB-013]. If you need any help navigating these steps, please let us know and we\u2019ll be happy to assist.\",\"citations\":[\"KB-011\",\"KB-013\"]}",
+   "tokens_in": 862,
+   "tokens_out": 563
+  },
+  {
+   "key": "1c1527be53b8cacf67ff51de125933f422e1c5d35993fee49ff4c6b963ac1caf",
+   "text": "{\"reply\":\"Thank you for contacting us. All refunds are proposals that require recorded human approval before any payment is changed [KB-006][KB-007]. A refund request will remain in a pending\u2011approval state until an approver reviews it [KB-009]. We will forward your request to the appropriate team for review; you will be notified once a decision is made. If you have a ticket or reference number for this invoice, please share it so we can locate the request [KB-009].\",\"citations\":[\"KB-006\",\"KB-007\",\"KB-009\"]}",
+   "tokens_in": 829,
+   "tokens_out": 637
+  }
+ ]
+}

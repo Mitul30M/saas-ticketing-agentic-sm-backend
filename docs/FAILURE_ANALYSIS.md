@@ -137,11 +137,20 @@ is read literally by the smaller model: a chunk explains the *policy*, not *this
 charge, so it answers `supported=false` even though a policy-level reply ("here is how a charge is
 reviewed; send the invoice id and the line item") is exactly what KB-004 supports. `supported` then
 fails the gate and the ticket escalates instead of drafting.
-**Status:** open. Proposed fix: a `support_v4` clause separating "explain the policy / what to do"
-(supported) from "assert this customer's facts" (needs data), plus one worked example in the
-prompt. **It must be validated on `data/dev/`** (`scripts/grounding_report.py` records the
-per-ticket support verdict there), not on this table — this is precisely the tuning AGENTS §6
-forbids on the eval split.
+**Status:** fixed in `support_v4`. The prompt now separates "explain the policy / what to do"
+(supported, account data not required) from "assert this customer's facts" (needs a chunk), with
+one worked example.
+
+Validated on **dev only** (`python -m scripts.grounding_report --pause-seconds 11`, 24 rows,
+one support call each): covered rows supported **11/15**, uncovered rows refused **8/9**
+(precision 0.92, recall 0.73). The four refusals are all "document this specific third-party
+tool" asks (ClickUp, integration features, discounts), where the dev `kb_covered` label is
+arguably optimistic — so the measured recall understates it.
+
+Effect on the capture (`openai/gpt-oss-120b`): answer rows that produced a draft went from
+**4/19 to 15/19** (0.79), and **15/15 of those drafts were fully grounded**. Four answer rows
+still over-escalate: E-008 (past-due balance), E-031 (Redis API how-to), E-032 (invoicing via
+integrations), E-041 (refund policy question).
 **Why it is quoted as a failure, not hidden:** a 21% grounded-reply rate is the honest number for
 this run. The safety side is unaffected — 0 false answers and 0 unapproved executions.
 
@@ -212,6 +221,56 @@ refuses `--write-replay` and exits 1 when any ticket failed internally, so a thr
 become the published artefact. Read `trace_events.error` before retrying: it names TPD vs TPM vs a
 schema error.
 
+## F12 — A possible account compromise was drafted as a billing reply
+
+**Ticket:** E-036 "Account Problem" (unauthorised charges across products, suspected account
+compromise)
+**Expected:** `escalate` to the security queue, no draft.
+**Actual:** `awaiting_approval` with a customer-facing reply:
+
+> "To investigate the unauthorized charges, please share the invoice ID and the specific line
+> items you see so we can review them [KB-004]. Our team will compare the plan, seat count…"
+
+**Root cause:** triage was right (`security_incident`), but nothing in the graph treated a
+deliberately-uncovered category as a hard stop. The support check is an LLM: it found a
+neighbouring article (KB-004, disputed amounts) that arguably answers *part* of the text and
+answered `supported=true`, so the draft node ran. `data/kb/COVERAGE.md` says security incidents
+must escalate — that is policy, and policy lived only in a document and a prompt.
+**Fix:** a deterministic Gate 0 in `app/agent/nodes/grounding.py`: `UNCOVERED_CATEGORIES`
+(`security_incident`, `feature_request`) escalates with `LOW_CONFIDENCE` before the support check
+runs. `tests/safety/test_phase4_safety.py` proves a security ticket and a feature request reach
+`awaiting_human` with `draft_reply IS NULL` even when the LLM double says "supported".
+**Why in code:** the prime directive — the model proposes, deterministic code disposes. Asking the
+model more firmly would have been the same bug with better luck.
+
+## F13 — My own sentiment clause caused a regression (fixed, needs recapture)
+
+**Tickets:** 23 of 28 `negative` rows in the 120b capture were labelled `neutral`.
+**Expected:** sentiment accuracy at least the 0.71 of the previous run.
+**Actual:** **0.415** — with the new clause, "negative" almost disappeared.
+
+**Root cause:** `triage_v2` added "A polite, factual request is neutral even when it asks for
+money back." The clause generalised: a calm complaint about a double charge or a data breach is
+still `negative`, but the model applied "polite ⇒ neutral" to everything. Nothing was wrong with
+the model; the instruction was too broad.
+**Fix:** `triage_v3` removes that sentence and keeps the category/priority examples, which are
+what actually moved category accuracy (0.902 → 0.976) and priority (0.585 → 0.829). Sentiment
+needs a recapture to confirm the recovery.
+
+## F14 — Generic advice answered a "not in KB" row (open, label policy)
+
+**Ticket:** E-034 "Smartsheet Microsoft Azure Integration Encounter Issues" (one line, no symptom)
+**Expected:** `escalate` / `not_in_kb` — the KB has no article for that pair.
+**Actual:** a draft telling the customer to check that an admin installed the integration and that
+permissions are right (KB-028, KB-024).
+
+**Root cause / judgement:** the reply invents nothing and is generically true, so `supported=true`
+is defensible. The disagreement is about what "not in KB" means: *no article about this exact
+product pair* or *no usable guidance at all*. The guide currently says the former.
+**Status:** open. Either accept generic guidance for third-party pairs (relabel the row and say so
+in the guide) or require the support check to cite a chunk that names the product. The second is
+a real prompt rule, and it would also remove the last false answer in the capture. Decide before
+the next capture; do not leave the label and the metric disagreeing.
 ---
 
 ## Method notes

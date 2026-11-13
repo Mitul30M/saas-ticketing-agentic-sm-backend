@@ -41,6 +41,7 @@ from app.config import settings
 from app.db import create_pool
 from app.llm.base import LLMClient, LLMError
 from app.retrieval.hybrid import warm_encoder
+from app.services import jobs
 from app.services.intake import create_ticket
 from app.worker import run_one
 
@@ -151,6 +152,45 @@ def _insert_ticket(pool: Any, row: dict[str, Any]) -> str:
             (settings.as_of, float(ticket["received_hours_before_as_of"]), ticket_id),
         )
     return ticket_id
+
+
+def _hash_body(body: str) -> str:
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
+def _find_ticket(pool: Any, row: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Existing ticket for this eval row and its latest job status."""
+    with pool.connection() as conn:
+        found = conn.execute(
+            "SELECT t.id, "
+            "(SELECT status FROM jobs WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) "
+            "AS job_status FROM tickets t "
+            "WHERE t.subject = %s AND t.content_hash = %s "
+            # the deterministic seed inserts the same hand-written edge tickets
+            # (same subject+body), so prefer the copy the eval run created
+            "ORDER BY (t.source <> 'seed') DESC, t.received_at DESC LIMIT 1",
+            (row["ticket"]["subject"], _hash_body(row["ticket"]["body"])),
+        ).fetchone()
+    if found is None:
+        return None, None
+    return str(found["id"]), (str(found["job_status"]) if found["job_status"] else None)
+
+
+def _requeue_interrupted(pool: Any, ticket_id: str) -> None:
+    """Re-run a ticket whose job died with the process.
+
+    The stale job is marked failed (it was interrupted, not completed) and a
+    fresh run is queued through `enqueue_rerun`, so the new run gets its own
+    checkpointer thread instead of resuming a half-written one.
+    """
+    with pool.connection() as conn, conn.transaction():
+        conn.execute(
+            "UPDATE jobs SET status='failed', locked_at=NULL, locked_by=NULL, "
+            "last_error='interrupted (eval timeout)', updated_at=now() "
+            "WHERE ticket_id=%s AND status IN ('queued','running')",
+            (ticket_id,),
+        )
+    jobs.enqueue_rerun(pool, ticket_id)
 
 
 def _pending_jobs(pool: Any) -> int:
@@ -471,7 +511,7 @@ def _dataset_hash(rows: list[dict[str, Any]]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _write_replay(pool: Any, path: Path) -> int:
+def _write_replay(pool: Any, path: Path, manifest: dict[str, Any]) -> int:
     with pool.connection() as conn:
         rows = conn.execute(
             "SELECT key, response, tokens_in, tokens_out, provider, model FROM llm_cache"
@@ -487,8 +527,18 @@ def _write_replay(pool: Any, path: Path) -> int:
         for row in rows
     ]
     path.write_text(json.dumps(
-        {"meta": {"model": settings.llm_model, "captured_at": datetime.now(UTC).isoformat()},
-         "entries": entries},
+        {
+            "meta": {
+                "model": settings.llm_model,
+                "captured_at": datetime.now(UTC).isoformat(),
+                # A replay is only faithful for the prompts (and code) that
+                # produced it; record them so a mismatch is a clear error
+                # instead of a wall of cache misses.
+                "prompt_versions": manifest.get("prompt_versions"),
+                "commit": manifest.get("commit"),
+            },
+            "entries": entries,
+        },
         indent=1,
     ))
     return len(entries)
@@ -511,6 +561,8 @@ def main() -> int:
                         help="write results even when a ticket failed internally")
     parser.add_argument("--db-url", default=DEFAULT_DB)
     parser.add_argument("--reuse-db", action="store_true", help="keep the existing eval database")
+    parser.add_argument("--resume", action="store_true",
+                        help="reuse completed tickets in --reuse-db, run only the rest")
     parser.add_argument("--allow-non-eval-db", action="store_true")
     parser.add_argument("--timeout", type=float, default=1800.0)
     parser.add_argument("--write-replay", action="store_true")
@@ -541,6 +593,8 @@ def main() -> int:
     _prepare_schema(args.db_url)
     if not args.reuse_db:
         _seed_and_ingest()
+    elif args.resume:
+        pass  # the database already holds the deterministic seed from the first attempt
 
     warm_encoder()
     pool = create_pool(args.db_url, max_size=max(4, args.concurrency + 2))
@@ -561,8 +615,26 @@ def main() -> int:
         client = _PacedClient(client, args.rpm, args.tpm)  # type: ignore[assignment]
 
     try:
-        ids = {row["id"]: _insert_ticket(pool, row) for row in rows}
-        print(f"  inserted {len(ids)} ticket(s); draining jobs", flush=True)
+        if args.resume:
+            if not args.reuse_db:
+                raise RuntimeError("--resume needs --reuse-db")
+            ids: dict[str, str] = {}
+            rerun: list[str] = []
+            for row in rows:
+                ticket_id, job_status = _find_ticket(pool, row)
+                if ticket_id is None:
+                    ids[row["id"]] = _insert_ticket(pool, row)
+                    rerun.append(row["id"])
+                else:
+                    ids[row["id"]] = ticket_id
+                    if job_status != "done":
+                        _requeue_interrupted(pool, ticket_id)
+                        rerun.append(row["id"])
+            print(f"  resume: {len(rows) - len(rerun)} already complete, "
+                  f"{len(rerun)} to run ({', '.join(rerun) or 'none'})", flush=True)
+        else:
+            ids = {row["id"]: _insert_ticket(pool, row) for row in rows}
+            print(f"  inserted {len(ids)} ticket(s); draining jobs", flush=True)
         _drain(pool, client, args.concurrency, args.timeout)
 
         records = _collect(pool, rows, ids)
@@ -579,6 +651,7 @@ def main() -> int:
         manifest = _manifest(args.llm, _dataset_hash(rows), started_at)
         manifest["finished_at"] = datetime.now(UTC).isoformat()
         manifest["ticket_count"] = len(records)
+        manifest["resumed"] = bool(args.resume)
         manifest["safety"] = safety
 
         out_dir = Path(args.out_dir)
@@ -589,18 +662,28 @@ def main() -> int:
         ))
 
         if args.write_replay:
+            if args.reuse_db and not args.resume:
+                raise RuntimeError(
+                    "--write-replay needs a fresh database: a reused one holds responses "
+                    "from earlier runs, so the capture could not be attributed to this run"
+                )
+            if args.resume:
+                with pool.connection() as conn:
+                    foreign = int(conn.execute(
+                        "SELECT count(*) AS n FROM tickets WHERE source <> 'seed'"
+                    ).fetchone()["n"])
+                if foreign != len(rows):
+                    raise RuntimeError(
+                        f"--write-replay refuses: {foreign} non-seed ticket(s) in the database "
+                        f"but {len(rows)} eval row(s); the cache cannot be attributed"
+                    )
             if failed:
                 raise RuntimeError(
                     f"refusing to capture a replay cache from a run with {len(failed)} "
                     f"internally failed ticket(s) ({', '.join(failed[:8])}): replay would "
                     "reproduce the failures. Re-run with pacing (--rpm) first."
                 )
-            if args.reuse_db:
-                raise RuntimeError(
-                    "--write-replay needs a fresh database: a reused one holds responses "
-                    "from earlier runs, so the capture could not be attributed to this run"
-                )
-            written = _write_replay(pool, REPLAY_PATH)
+            written = _write_replay(pool, REPLAY_PATH, manifest)
             print(f"  replay cache: {written} LLM responses -> {REPLAY_PATH}", flush=True)
 
         _print_summary(records, manifest, out_path)

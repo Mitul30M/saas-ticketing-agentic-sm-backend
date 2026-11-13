@@ -66,8 +66,10 @@ def test_system_prompt_is_static_and_never_contains_ticket_text() -> None:
 
 
 def test_prompt_file_is_versioned_and_loadable() -> None:
+    """The file name must follow the version constant: the trace records the
+    version, so a mismatch would mislabel every run that used it."""
     path = triage_mod._PROMPT_FILE
-    assert path.name == "triage_v1.txt"
+    assert path.name == f"{triage_mod.PROMPT_VERSION}.txt"
     assert path.exists()
     assert "category" in path.read_text(encoding="utf-8")
 

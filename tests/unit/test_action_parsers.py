@@ -81,3 +81,29 @@ def test_parse_target_plan(text: str, expected: str) -> None:
 def test_ambiguous_plan_targets_raise(text: str) -> None:
     with pytest.raises(ValueError):
         parse_target_plan(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "current", "expected"),
+    [
+        # the customer names the current plan and one target, no "from ... to"
+        ("I am on the annual Pro plan; please move me to Starter monthly",
+         "PLAN-PRO", "PLAN-STARTER"),
+        ("we are on Starter and need Pro", "PLAN-STARTER", "PLAN-PRO"),
+    ],
+)
+def test_current_plan_supplies_the_missing_from(text: str, current: str, expected: str) -> None:
+    assert parse_target_plan(text, current_plan_id=current) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "current"),
+    [
+        # still ambiguous: two plans differ from the current one
+        ("from Pro to Starter, not Business", "PLAN-PRO"),
+        ("upgrade me to pro or business, you pick", "PLAN-STARTER"),
+    ],
+)
+def test_current_plan_does_not_resolve_genuine_ambiguity(text: str, current: str) -> None:
+    with pytest.raises(ValueError):
+        parse_target_plan(text, current_plan_id=current)

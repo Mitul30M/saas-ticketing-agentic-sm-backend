@@ -44,12 +44,15 @@ def parse_amount_cents(text: str) -> int:
     return values.pop()
 
 
-def parse_target_plan(text: str) -> str:
+def parse_target_plan(text: str, current_plan_id: str | None = None) -> str:
     """The plan the customer asked to move TO.
 
     One mentioned plan decides; with several, only a directional from/to
     reading decides, and only when it accounts for every mentioned plan —
-    "from Pro to Starter, not Business" stays ambiguous."""
+    "from Pro to Starter, not Business" stays ambiguous. When the customer
+    names their current plan as well ("I am on the annual Pro plan, move me to
+    Starter"), the subscription supplies the missing "from", but only if
+    exactly one mentioned plan differs from it."""
     mentioned = {match.group(1).lower() for match in PLAN_WORD_RE.finditer(text)}
     if len(mentioned) == 1:
         return PLAN_IDS[mentioned.pop()]
@@ -59,6 +62,10 @@ def parse_target_plan(text: str) -> str:
     from_to = _FROM_TO_RE.search(text)
     if from_to and mentioned <= {from_to.group(1).lower(), from_to.group(2).lower()}:
         return PLAN_IDS[from_to.group(2).lower()]
+    if current_plan_id:
+        others = [PLAN_IDS[word] for word in mentioned if PLAN_IDS[word] != current_plan_id]
+        if len(others) == 1:
+            return others[0]
     raise ValueError("no unambiguous target plan in the ticket")
 
 
@@ -186,8 +193,16 @@ def make_tool_executor_node(registry: ToolRegistry):
                     "detail": "subscription lookup failed before proposing a plan change",
                 },
             }
+        active_plan = next(
+            (
+                str(entry["plan_id"])
+                for entry in (subscription.data or {}).get("subscriptions") or []
+                if entry.get("status") == "active"
+            ),
+            None,
+        )
         try:
-            target = parse_target_plan(text)
+            target = parse_target_plan(text, current_plan_id=active_plan)
         except ValueError:
             return {
                 "outcome": "escalated",

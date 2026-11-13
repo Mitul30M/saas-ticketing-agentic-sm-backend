@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from app.domain.enums import CATEGORY_QUEUE, Category, Priority, Queue, Sentiment
 from app.llm.base import LLMClient
 
-PROMPT_VERSION = "triage_v1"
+PROMPT_VERSION = "triage_v3"
 _PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / f"{PROMPT_VERSION}.txt"
 
 SUBJECT_OPEN, SUBJECT_CLOSE = "<<<SUBJECT", "SUBJECT>>>"
