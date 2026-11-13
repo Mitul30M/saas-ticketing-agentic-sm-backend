@@ -200,7 +200,10 @@ class LLMClient:
             )
             response = model.invoke(messages)
         except Exception as exc:
-            raise LLMError("Groq request failed") from exc
+            # keep the provider's own words: "failed" alone made a rate-limit
+            # 429 indistinguishable from an auth or model-id error
+            detail = f"{type(exc).__name__}: {exc}"[:300]
+            raise LLMError(f"Groq request failed ({detail})") from exc
         content = response.content
         if not isinstance(content, str):
             raise LLMError("Groq returned a non-text response")

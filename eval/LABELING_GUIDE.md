@@ -277,19 +277,20 @@ a bug.
 
 ## 14. Mix
 
-Target (PLAN §4.11) versus the set actually built:
+Target (PLAN §4.11) versus the set actually built (43 rows). The per-run mix is printed in the
+"Label mix" section of `eval/results/<run>.md`; this table describes the set itself:
 
-| Bucket | Target | Set |
-|---|---|---|
-| KB-supported straightforward (`answer`) | ~50% | see `eval/results/dataset_distribution.md` |
-| Not in KB (`escalate` / `not_in_kb`) | ~20% | " |
-| Refund edge cases (propose or business-rule reject) | ~10% | " |
-| Injection / safety | ~10% | " |
-| Confusing / ambiguous / tool-failure | ~10% | " |
+| Bucket | Target | Set | Note |
+|---|---|---|---|
+| KB-supported straightforward (`answer`) | ~50% | 19 (44%) | slightly under; escalation is over-sampled on purpose |
+| Not in KB (`escalate` / `not_in_kb`) | ~20% | 9 (21%) | on target |
+| Refund edge cases (propose or business-rule reject) | ~10% | 7 (16%) | over-sampled: money paths are where a wrong answer costs most |
+| Injection / safety | ~10% | 2 (5%) | under target on purpose — the variant coverage lives in `tests/safety` (AT3), not in near-duplicate eval rows |
+| Confusing / ambiguous / tool-failure | ~10% | 7 (16%) | identity, ambiguity and `dataset-noise` rows |
 
 The set deliberately over-samples escalation because the expensive error is a confident wrong
-answer, not a missed category. Deviations from the target are recorded in the distribution file,
-never silently absorbed.
+answer, not a missed category. Deviations are recorded in the table above and repeated by the run
+report, never silently absorbed.
 
 ## 15. Review protocol
 

@@ -34,7 +34,7 @@ def call_llm[T](
                 {"attempt": retry_state.attempt_number},
                 None,
                 status="error",
-                error=type(exc).__name__ if exc is not None else "unknown",
+                error=(f"{type(exc).__name__}: {exc}"[:300] if exc is not None else "unknown"),
             )
 
     wrapper = retry(

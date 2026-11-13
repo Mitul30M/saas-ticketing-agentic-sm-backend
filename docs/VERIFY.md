@@ -886,6 +886,76 @@ SQL
 
 ---
 
+## 12. Evaluation (Phase 6)
+
+The eval runs against its **own database** (`nimbus_eval` on the same container). The runner
+creates, migrates, seeds and ingests it, and refuses any `--db-url` whose database name does not
+end in `_eval` — that guard is why a typo cannot wipe the `nimbus` demo data. The compose api and
+worker point at `nimbus`, so they never see these jobs.
+
+```bash
+make eval-stub      # plumbing only: deterministic stub LLM, no API key, ~1 min
+make eval-live      # real model (LLM_API_KEY), rewrites eval/replay_cache.json
+make eval           # replays the captured run: no key, reproduces the published table
+make eval-ablation  # BM25/vector/hybrid/rerank hit@k + tau sweep on dev
+```
+
+What each produces:
+
+| Artefact | Written by | Notes |
+|---|---|---|
+| `eval/results/<run>.json` | every run | manifest (model, commit, dataset hash, prompt versions, AS_OF) + one record per ticket with gold, actual and trace summary |
+| `eval/results/<run>.md` | `eval.report` | the table; warns when rows are unreviewed or the provider is the stub |
+| `eval/replay_cache.json` | `--write-replay` | the committed real-model capture `make eval` serves |
+| `eval/results/retrieval_ablation.{json,md}` | `make eval-ablation` | hit rates + threshold curve |
+
+**Rate limits are the number-one trap.** A 43-ticket run makes ~130 LLM calls (**~127k tokens**,
+about 977 tokens per call). Observed free-tier limits: **200k tokens per day** and **8k tokens per
+minute**. So:
+
+- a full run fits in one day's budget, but only **one** — failed retries spend it too;
+- when the daily budget is gone, every call fails with `429 ... tokens per day (TPD)` and the
+  failures land on whichever node was in flight, so it looks like many unrelated bugs. The "try
+  again in 4m58s" hint refers to the per-minute bucket, not the daily one. `trace_events.error`
+  now carries the provider's own words; read it before re-running.
+- `--tpm` keeps a sliding 60 s token budget and serialises calls, estimating the next call at the
+  **largest** call in the window (an 8k TPM limit is tripped by one 2.2k grounding prompt, not by
+  the average). `--rpm` does the same for request count. Pacing does **not** help once the daily
+  budget is gone — wait for the reset.
+
+```bash
+uv run python -m eval.run_eval --llm groq --tpm 6000 --write-replay   # ~16 min, 43 tickets, ~127k tokens
+uv run python -m eval.run_eval --llm groq --limit 3                   # quick sanity, ~3k tokens
+``` A run with any internally failed ticket is **not publishable**: the runner exits 1
+and refuses `--write-replay`, because replaying a failed run would reproduce the failures. Use
+`--allow-failures` only when you are debugging one ticket.
+
+Review flags are reviewer state, not generated data:
+
+```bash
+uv run python -m eval.review list                     # reviewed / pending ids
+uv run python -m eval.review mark E-017 E-018 --by mitul
+```
+
+Pitfalls:
+
+- `make eval` serves the **captured** run, so it reproduces the published numbers even after the
+  labels are edited (metrics move, agent behaviour does not). Re-run `make eval-live` when the
+  prompts or the code change, then commit the new `eval/replay_cache.json`.
+- Never tune `eval/replay_cache.json`, the threshold or the prompts against `data/eval/`. Tune on
+  `data/dev/`, then capture. The τ sweep in `make eval-ablation` reads dev only, on purpose.
+- `--write-replay` refuses `--reuse-db`: a reused database holds responses from earlier runs, so
+  the capture could not be attributed to the current one.
+- `make eval` needs `eval/replay_cache.json`. If it is missing, the runner exits 2 with the command
+  to create it — that is the honest state, not a broken build.
+
+Full suite at this point (worker stopped, because a live worker would claim the test jobs):
+
+```
+$ docker compose stop worker && uv run pytest tests/unit tests/integration tests/safety -q
+328 passed
+```
+
 ## Appendix A. Recorded transcript (2026-11-13, clean volume)
 
 Raw output from a stack built after `docker compose down` + deleting the `hf_cache` volume, i.e. the

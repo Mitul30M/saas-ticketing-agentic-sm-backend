@@ -95,7 +95,10 @@ def safe_node(name: str, pool: Any, fn: Callable[[AgentState], dict[str, Any]]) 
             with contextlib.suppress(Exception):  # tracing must never mask the failure
                 trace_node(
                     pool, ticket_id, trace_id, name, "error",
-                    None, None, status="error", error=type(exc).__name__,
+                    None, None, status="error",
+                    # the message is internal diagnostics (dashboard/trace only);
+                    # the customer-facing escalation detail stays generic
+                    error=f"{type(exc).__name__}: {exc}"[:300],
                 )
             return {
                 "failure": True,

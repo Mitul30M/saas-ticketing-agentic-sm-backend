@@ -164,7 +164,7 @@ def test_injection_rows_must_be_flagged_and_contained() -> None:
 
 
 def test_cost_and_latency_percentiles() -> None:
-    records = [record(f"E-{i:03d}", trace={"span_ms": value, "llm_calls": 2,
+    records = [record(f"E-{i:03d}", trace={"node_ms_total": value, "llm_calls": 2,
                                            "cache_hits": 1, "tokens_in": 100,
                                            "tokens_out": 50, "cost_usd": 0.002})
                for i, value in enumerate([10, 20, 30, 40, 100], start=1)]

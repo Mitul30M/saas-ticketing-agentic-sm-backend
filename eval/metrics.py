@@ -193,10 +193,19 @@ def grounding(records: list[dict[str, Any]]) -> dict[str, Any]:
         if failed:
             failures.append({"eval_id": record["eval_id"], "checks": sorted(set(failed))})
     passed_count = len(population) - len(failures)
+    # Two rates, because they answer different questions: "did the agent answer
+    # at all" (over-escalation counts as a miss) and "when it answered, was the
+    # answer grounded" (citation quality only).
+    drafted = [r for r in population if r["actual"]["draft_reply"]]
+    drafted_ids = {r["eval_id"] for r in drafted}
+    drafted_failures = [f for f in failures if f["eval_id"] in drafted_ids]
     return {
         "population": len(population),
         "grounded": passed_count,
         "rate": _rate(passed_count, len(population)),
+        "drafted": len(drafted),
+        "drafted_grounded": len(drafted) - len(drafted_failures),
+        "rate_among_drafted": _rate(len(drafted) - len(drafted_failures), len(drafted)),
         "failures": failures,
         "check_counts": dict(checks),
         "judged": None,
@@ -282,7 +291,10 @@ def cost_latency(records: list[dict[str, Any]]) -> dict[str, Any]:
     cost = round(sum(r["trace"]["cost_usd"] for r in records), 6)
     llm_calls = sum(r["trace"]["llm_calls"] for r in records)
     cache_hits = sum(r["trace"]["cache_hits"] for r in records)
-    spans = [int(r["trace"]["span_ms"]) for r in records]
+    # Processing time, not wall-clock span: a paced run sleeps between calls and
+    # a concurrent run queues tickets behind each other, neither of which is
+    # model latency. `span_ms` keeps the end-to-end number for the record.
+    spans = [int(r["trace"]["node_ms_total"]) for r in records]
 
     node_values: dict[str, list[int]] = defaultdict(list)
     for record in records:
@@ -299,6 +311,7 @@ def cost_latency(records: list[dict[str, Any]]) -> dict[str, Any]:
         "llm_calls": llm_calls,
         "llm_calls_per_ticket": round(llm_calls / tickets, 2),
         "cache_hit_rate": _rate(cache_hits, llm_calls),
+        "latency_source": "sum of node durations (excludes provider pacing and queueing)",
         "latency_p50_ms": _percentile(spans, 0.5),
         "latency_p95_ms": _percentile(spans, 0.95),
         "latency_mean_ms": round(sum(spans) / tickets, 1),
@@ -335,6 +348,19 @@ def dataset(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 def compute(records: list[dict[str, Any]], manifest: dict[str, Any] | None = None) -> dict[str, Any]:
     manifest = manifest or {}
+    costs = cost_latency(records)
+    if manifest.get("provider") == "replay":
+        # Every replay answer is served from the capture, so 100% would be a
+        # property of the harness, not of the model. Say so instead of printing
+        # a number that cannot be compared with the capture.
+        costs["cache_hit_rate"] = None
+        costs["cache_hit_note"] = "not meaningful in replay (every call is served from the capture)"
+        # Replayed calls return instantly by construction, so timings measured
+        # here say nothing about the model. Decisions and tokens reproduce;
+        # latency does not.
+        for key in ("latency_p50_ms", "latency_p95_ms", "latency_mean_ms"):
+            costs[key] = None
+        costs["latency_note"] = "not meaningful in replay; see the capture run for timings"
     return {
         "manifest": {
             "run_id": manifest.get("run_id"),
@@ -352,7 +378,7 @@ def compute(records: list[dict[str, Any]], manifest: dict[str, Any] | None = Non
         "grounding": grounding(records),
         "escalation": escalation(records),
         "safety": safety(records),
-        "cost_latency": cost_latency(records),
+        "cost_latency": costs,
     }
 
 
@@ -415,7 +441,12 @@ def render_markdown(metrics: dict[str, Any]) -> str:
         "## Grounding / escalation / safety",
         "",
         _table(["metric", "value"], [
-            ["grounded replies", f"{m['grounding']['grounded']}/{m['grounding']['population']}"],
+            ["grounded replies (all answer rows)",
+             (f"{m['grounding']['grounded']}/{m['grounding']['population']} "
+              f"({m['grounding']['rate']})")],
+            ["grounded when drafted",
+             (f"{m['grounding']['drafted_grounded']}/{m['grounding']['drafted']} "
+              f"({m['grounding']['rate_among_drafted']})")],
             ["escalation precision", m["escalation"]["precision"]],
             ["escalation recall", m["escalation"]["recall"]],
             ["false answers (should escalate)", ", ".join(m["escalation"]["false_answers"]) or "none"],
@@ -430,10 +461,12 @@ def render_markdown(metrics: dict[str, Any]) -> str:
         _table(["metric", "value"], [
             ["tokens / ticket", m["cost_latency"]["tokens_per_ticket"]],
             ["LLM calls / ticket", m["cost_latency"]["llm_calls_per_ticket"]],
-            ["cache hit rate", m["cost_latency"]["cache_hit_rate"]],
+            ["cache hit rate", m["cost_latency"]["cache_hit_rate"]
+             if m["cost_latency"]["cache_hit_rate"] is not None else "n/a (replay)"],
             ["cost / ticket (USD)", m["cost_latency"]["cost_per_ticket_usd"]],
             ["cost / 1,000 tickets (USD)", m["cost_latency"]["cost_per_1000_tickets_usd"]],
             ["latency mean / p50 / p95 (ms)",
+             "n/a (replay)" if m["cost_latency"]["latency_mean_ms"] is None else
              (f"{m['cost_latency']['latency_mean_ms']} / "
               f"{m['cost_latency']['latency_p50_ms']} / "
               f"{m['cost_latency']['latency_p95_ms']}")],

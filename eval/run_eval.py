@@ -28,6 +28,7 @@ import json
 import subprocess
 import threading
 import time
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -187,6 +188,68 @@ def _drain(pool: Any, client: LLMClient, concurrency: int, timeout_s: float) -> 
         raise RuntimeError(
             f"eval did not drain within {timeout_s:.0f}s; {_pending_jobs(pool)} job(s) still pending"
         )
+
+
+class _PacedClient:
+    """Keep the run inside a provider's per-minute request *and* token budget.
+
+    A 43-ticket run makes ~130 LLM calls. Pacing by request count alone still
+    tripped Groq's per-minute token limit, because grounding prompts carry five
+    KB chunks (~2.5k tokens) while triage prompts are ~700: the same call rate
+    costs very different tokens. This tracks the tokens actually returned in a
+    sliding 60 s window and waits before the next call. Calls are serialised
+    while held, so the budget is exact and no two threads overshoot together.
+    """
+
+    def __init__(self, inner: Any, rpm: float = 0.0, tpm: float = 0.0) -> None:
+        self._inner = inner
+        self._rpm = rpm
+        self._tpm = tpm
+        self._lock = threading.Lock()
+        self._calls: deque[tuple[float, int]] = deque()
+        self._last_start = 0.0
+
+    @property
+    def provider(self) -> str:
+        return str(getattr(self._inner, "provider", "unknown"))
+
+    @property
+    def misses(self) -> int:
+        return int(getattr(self._inner, "misses", 0))
+
+    def generate(self, *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            self._wait_for_budget()
+            self._last_start = time.monotonic()
+            response = self._inner.generate(*args, **kwargs)
+            usage = getattr(response, "usage", None)
+            tokens = int(getattr(usage, "input_tokens", 0)) + int(
+                getattr(usage, "output_tokens", 0)
+            )
+            self._calls.append((time.monotonic(), tokens))
+            return response
+
+    def _wait_for_budget(self) -> None:
+        while True:
+            now = time.monotonic()
+            while self._calls and now - self._calls[0][0] >= 60.0:
+                self._calls.popleft()
+            used = sum(tokens for _, tokens in self._calls)
+            # worst case, not the average: a 2.2k-token grounding prompt
+            # arriving after small triage calls is what tripped an 8k TPM
+            # limit while the average still looked safe.
+            estimate = max([600, *(tokens for _, tokens in self._calls)])
+            rpm_wait = 0.0
+            if self._rpm > 0:
+                rpm_wait = (60.0 / self._rpm) - (now - self._last_start)
+            tpm_wait = 0.0
+            if self._tpm > 0 and used + estimate > self._tpm * 0.9:
+                oldest = self._calls[0][0] if self._calls else now
+                tpm_wait = max(0.0, 60.0 - (now - oldest)) + 0.25
+            wait = max(rpm_wait, tpm_wait)
+            if wait <= 0:
+                return
+            time.sleep(min(wait, 60.0))
 
 
 # --- collection -------------------------------------------------------------
@@ -393,6 +456,8 @@ def _manifest(provider: str, dataset_hash: str, started_at: datetime) -> dict[st
         "refund_window_days": settings.refund_window_days,
         "step_limit": settings.step_limit,
         "tool_timeout_s": settings.tool_timeout_s,
+        "llm_max_calls": settings.llm_max_calls,
+        "llm_timeout_s": settings.llm_timeout_s,
         "embed_model": settings.embed_model,
         "prompt_versions": {
             "triage": TRIAGE_PROMPT, "draft": DRAFT_PROMPT, "support": SUPPORT_PROMPT,
@@ -438,6 +503,12 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None, help="first N eval rows by id")
     parser.add_argument("--ids", default=None, help="comma-separated eval ids (debugging)")
     parser.add_argument("--concurrency", type=int, default=2)
+    parser.add_argument("--rpm", type=float, default=0.0,
+                        help="ceiling on LLM calls per minute (0 = unthrottled)")
+    parser.add_argument("--tpm", type=float, default=0.0,
+                        help="ceiling on LLM tokens per minute (0 = unthrottled)")
+    parser.add_argument("--allow-failures", action="store_true",
+                        help="write results even when a ticket failed internally")
     parser.add_argument("--db-url", default=DEFAULT_DB)
     parser.add_argument("--reuse-db", action="store_true", help="keep the existing eval database")
     parser.add_argument("--allow-non-eval-db", action="store_true")
@@ -486,6 +557,8 @@ def main() -> int:
             return 2
     else:
         client = LLMClient(provider=args.llm, pool=pool)
+    if args.rpm > 0 or args.tpm > 0:
+        client = _PacedClient(client, args.rpm, args.tpm)  # type: ignore[assignment]
 
     try:
         ids = {row["id"]: _insert_ticket(pool, row) for row in rows}
@@ -500,6 +573,9 @@ def main() -> int:
                 f"SAFETY INVARIANT VIOLATED, refusing to publish results: {broken}"
             )
 
+        failed = [r["eval_id"] for r in records
+                  if r["actual"]["agent_outcome"] == "failed"
+                  or r["actual"]["job_status"] == "failed"]
         manifest = _manifest(args.llm, _dataset_hash(rows), started_at)
         manifest["finished_at"] = datetime.now(UTC).isoformat()
         manifest["ticket_count"] = len(records)
@@ -513,6 +589,12 @@ def main() -> int:
         ))
 
         if args.write_replay:
+            if failed:
+                raise RuntimeError(
+                    f"refusing to capture a replay cache from a run with {len(failed)} "
+                    f"internally failed ticket(s) ({', '.join(failed[:8])}): replay would "
+                    "reproduce the failures. Re-run with pacing (--rpm) first."
+                )
             if args.reuse_db:
                 raise RuntimeError(
                     "--write-replay needs a fresh database: a reused one holds responses "
@@ -522,6 +604,10 @@ def main() -> int:
             print(f"  replay cache: {written} LLM responses -> {REPLAY_PATH}", flush=True)
 
         _print_summary(records, manifest, out_path)
+        if failed and not args.allow_failures:
+            print(f"\nRESULT NOT PUBLISHABLE: {len(failed)} ticket(s) failed internally "
+                  f"({', '.join(failed)}) — usually provider throttling. Re-run with --rpm.")
+            return 1
         if args.llm == "replay" and getattr(client, "misses", 0):
             print(f"  replay misses: {client.misses}")  # type: ignore[attr-defined]
             return 1

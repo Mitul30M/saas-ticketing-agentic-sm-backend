@@ -448,3 +448,37 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - Triage accuracy is measured only on rows that reached the triage node (a `BAD_TICKET` never
   does) and the skipped ids are listed. Tool choice counts a proposal that the tool correctly
   rejected as a correct call; the rejection is reported separately as "proposal rejections".
+
+### 2026-11-13 · Phase 6: pace eval runs by tokens, and never publish a failed run
+- A 43-ticket run makes ~130 LLM calls. Pacing by request count was not enough: grounding prompts
+  carry five KB chunks (~2.5k tokens) while triage prompts are ~700, so the same call rate costs
+  very different token counts and the run still hit the provider's per-minute token limit. The
+  failures arrived as `INTERNAL_ERROR` on triage/grounding/draft — many victims, one cause.
+  `--tpm` now holds a sliding 60 s token budget and serialises calls; `--rpm` stays for
+  request-rate limits. Measured: the throttled run sustained ~11.7k tokens/min before failing, so
+  the documented run uses `--tpm 6000` (~16 min for 43 tickets).
+- A run with any internally failed ticket exits 1 and refuses `--write-replay`: replaying a
+  throttled run would faithfully reproduce the failures. `--allow-failures` exists only for
+  debugging a single ticket.
+- Node trace errors now carry the exception message (`LLMError: LLM JSON did not match ...
+  (reason: Field required)`), not just the class name. The customer-facing escalation detail stays
+  generic; the trace is the internal diagnostic surface and losing the message made a
+  rate-limit burst indistinguishable from a schema bug.
+
+### 2026-11-13 · Phase 6: the headline capture runs on gpt-oss-20b for now
+- The configured model is `openai/gpt-oss-120b`, but its free-tier daily budget (200k tokens) was
+  consumed while diagnosing F1/F10, and one full run costs ~127k. An experiment on 20b was chosen
+  over waiting a day, with the model named in the run's manifest and report. 20b has its own
+  200k/day and an 8k TPM ceiling; `--tpm 6000` keeps the run under it.
+- Re-capturing on 120b when its budget resets is a one-command swap (`make eval-live`) plus a commit
+  of `eval/replay_cache.json`; nothing else changes, because the report reads the model from the
+  manifest.
+- The replay loader takes the model from the capture and prints a note when `LLM_MODEL` differs.
+  The cache is the source of truth for a replay: its keys embed the model, so refusing to replay
+  because `.env` changed would make the artefact fragile for no benefit.
+- `draft_v4`: the draft prompt now lists `reply` and `citations` explicitly, after `gpt-oss-20b`
+  omitted `reply` on 8 of 43 tickets. Same lesson as F1 — a schema the model cannot see is a
+  schema it will not follow. Version bumped because the trace records it.
+- `--tpm` now estimates the next call at the largest call in the window, not the mean: a 2.2k
+  grounding prompt after small triage calls exceeded the 8k TPM limit while the average looked
+  safe.
