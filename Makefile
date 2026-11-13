@@ -31,14 +31,22 @@ test-all:
 	uv run pytest tests/unit tests/integration tests/safety -q
 
 eval:
-	@echo "make eval: the evaluation harness (eval/run_eval.py) is not written yet."
-	@echo ""
-	@echo "  What exists:   make grounding-report  -> eval/results/grounding_dev.csv"
-	@echo "  What is missing: a gold-labelled eval set (PLAN 4.11: data/eval/eval_set.jsonl,"
-	@echo "                   >=25 tickets, disjoint from data/dev) and the runner + metrics."
-	@echo "  Honest status: no evaluation numbers are published until both exist; stub mode"
-	@echo "                 only proves plumbing, so headline numbers need --llm groq."
-	@exit 1
+	@echo "eval: replaying the captured real-model run (no API key needed)"
+	uv run python -m eval.run_eval --llm replay
+	uv run python -m eval.report
+
+eval-live:
+	@echo "eval-live: fresh real-model run; rewrites eval/replay_cache.json"
+	uv run python -m eval.run_eval --llm groq --write-replay
+	uv run python -m eval.report
+
+eval-stub:
+	@echo "eval-stub: plumbing only (deterministic stub LLM), not model quality"
+	uv run python -m eval.run_eval --llm stub
+	uv run python -m eval.report
+
+eval-ablation:
+	uv run python -m eval.retrieval_ablation
 
 grounding-report:
 	uv run python -m scripts.grounding_report

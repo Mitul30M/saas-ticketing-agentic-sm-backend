@@ -49,7 +49,14 @@ def parse_structured[SchemaT: BaseModel](text: str, schema: type[SchemaT]) -> Sc
     try:
         return schema.model_validate(value)
     except ValidationError as exc:
-        raise LLMError("LLM JSON did not match the requested schema") from exc
+        # Name the first offending field: a bare "did not match" made a real
+        # model failure undiagnosable and sent the repair prompt chasing JSON
+        # syntax that was already fine.
+        first = exc.errors()[0]
+        where = ".".join(str(part) for part in first.get("loc") or ()) or "<root>"
+        raise LLMError(
+            f"LLM JSON did not match the requested schema ({where}: {first.get('msg')})"
+        ) from exc
 
 
 class LLMClient:
@@ -98,7 +105,10 @@ class LLMClient:
         text, structured = repaired_text, repaired_structured
         if self._pool is not None:
             with self._pool.connection() as conn:
-                store_cached(conn, key, {"text": text}, tokens_in, tokens_out)
+                store_cached(
+                conn, key, {"text": text}, tokens_in, tokens_out,
+                provider=self.provider, model=settings.llm_model or self.provider,
+            )
         latency_ms = int((perf_counter() - started) * 1000)
         return LLMResponse(text, structured, Usage(tokens_in, tokens_out, latency_ms))
 
@@ -139,9 +149,9 @@ class LLMClient:
             pass
         retry_messages = messages + [{
             "role": "user",
-            "content": "Your previous reply was not valid JSON matching the requested "
-                       "schema. Reply again with ONLY the JSON object, no prose, "
-                       "no markdown fences.",
+            "content": "Your previous reply did not parse as the required JSON schema. "
+                       "Reply again with ONLY the JSON object, every field present, "
+                       "no prose, no markdown fences.",
         }]
         retry_text, _, _ = self._raw_generate(retry_messages, schema, tools, {})
         final_text = _strip_fences(retry_text)

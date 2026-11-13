@@ -35,6 +35,8 @@ PROMISE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"refund\b[^.?!]*\b(has been|will be|is being)\b", re.IGNORECASE),
     re.compile(r"\b(your|the)\s+refund\s+(is|has been)\s+(approved|processed|issued|on its way)", re.IGNORECASE),
     re.compile(r"\b(i|we)( have|'ve)?\s+(issued|processed|sent|approved)\s+(your|the|a)\s+refund", re.IGNORECASE),
+    # past-tense claim that the refund already happened ("I have refunded $20")
+    re.compile(r"\b(i|we)( have|'ve)?\s+refunded\b", re.IGNORECASE),
     re.compile(r"\b(plan|subscription|account)\b[^.?!]*\b(has been|will be|is being)\s+(changed|upgraded|downgraded|cancelled|canceled|switched)", re.IGNORECASE),
     re.compile(r"\b(i|we)( have|'ve| will|'ll)?\s+(upgraded|downgraded|changed|cancelled|canceled|switched)\s+your\s+(plan|subscription|account)", re.IGNORECASE),
     # future-tense commitments by the agent

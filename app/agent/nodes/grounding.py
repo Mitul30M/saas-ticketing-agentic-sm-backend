@@ -23,7 +23,7 @@ from app.agent.state import AgentState
 from app.config import settings
 from app.llm.base import LLMClient
 
-PROMPT_VERSION = "support_v2"
+PROMPT_VERSION = "support_v3"
 _PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / f"{PROMPT_VERSION}.txt"
 
 
@@ -35,7 +35,10 @@ class ClaimSupport(BaseModel):
 class SupportCheckOutput(BaseModel):
     supported: bool
     conflicting: bool = False
-    reason: str = Field(min_length=1, max_length=500)
+    # Cosmetic: it feeds the trace and the dashboard, never a gate. gpt-oss-120b
+    # omitted it on real tickets, which used to fail an otherwise valid verdict,
+    # so the field defaults instead of being required.
+    reason: str = Field(default="", max_length=500)
     claims: list[ClaimSupport] = Field(default_factory=list)
     conflicting_kb_ids: list[str] = Field(default_factory=list)
 

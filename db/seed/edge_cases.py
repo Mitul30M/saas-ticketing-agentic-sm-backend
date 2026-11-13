@@ -77,19 +77,26 @@ def _force_paid_invoice(conn: Any, invoice_id: str, customer_id: str, sub_id: st
         INSERT INTO invoices
             (id, customer_id, subscription_id, amount_cents, currency, status, issued_at, due_at)
         VALUES (%s, %s, %s, %s, 'USD', %s, %s, %s)
-        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, issued_at = EXCLUDED.issued_at
+        ON CONFLICT (id) DO UPDATE
+            SET status = EXCLUDED.status, issued_at = EXCLUDED.issued_at,
+                due_at = EXCLUDED.due_at, amount_cents = EXCLUDED.amount_cents
         """,
         (invoice_id, customer_id, sub_id, amount, invoice_status, issued,
          issued + timedelta(days=14)),
     )
     payment_id = str(det_uuid("pay", invoice_id))
+    # `paid_at` is part of the fixture's meaning (refund window), so a re-seed
+    # must move it too. Updating only the refunded amount left an earlier
+    # paid_at in place and silently put "5 days old" invoices 90 days back.
     conn.execute(
         """
         INSERT INTO payments
             (id, invoice_id, amount_cents, method, status, paid_at, amount_refunded_cents)
         VALUES (%s, %s, %s, 'visa_4242', 'succeeded', %s, %s)
         ON CONFLICT (id) DO UPDATE
-            SET status = 'succeeded', amount_refunded_cents = EXCLUDED.amount_refunded_cents
+            SET status = 'succeeded', paid_at = EXCLUDED.paid_at,
+                amount_cents = EXCLUDED.amount_cents,
+                amount_refunded_cents = EXCLUDED.amount_refunded_cents
         """,
         (payment_id, invoice_id, amount, issued + timedelta(hours=6), amount - remaining),
     )
@@ -161,7 +168,8 @@ def seed_edge_cases(
     pay_pr = _force_paid_invoice(conn, inv_pr, c3["id"], str(sub3["id"]), 1999 + 4,
                                  remaining=int((1999 + 4) * 0.7), hours_ago=24 * 10)
     add("invoice_partially_refunded",
-        "30% already refunded; tools must clamp to the remaining 70%.",
+        "30% already refunded; a full-amount ask must be rejected on the remaining balance "
+        "(the tool rejects, it never clamps silently).",
         {"customer_id": str(c3["id"]), "invoice_id": inv_pr, "payment_id": pay_pr,
          "amount_cents": 1999 + 4, "already_refunded_cents": int((1999 + 4) * 0.3)})
 
@@ -199,6 +207,20 @@ def seed_edge_cases(
         "Invoice with one succeeded and one failed payment; replies must reflect the succeeded payment.",
         {"customer_id": str(c8["id"]), "invoice_id": "INV-0008-M4"})
 
+    # Outside-window control: the base seed pays INV-0004-M1 10 days before
+    # AS_OF, i.e. INSIDE the 30-day window. The edge ticket below asks for a
+    # refund "from months ago", so the invoice is aged to 60 days here;
+    # otherwise the window check never fires and the case tests nothing.
+    # (C-0001 was the original sender, but its duplicated email makes
+    # lookup_customer fail closed, so the ticket escalated at identity and the
+    # window rule was never reached.)
+    c4 = by_ref["C-0004"]
+    _force_paid_invoice(conn, "INV-0004-M1", c4["id"], str(subs["C-0004"]["id"]), 1999 + 1,
+                        remaining=1999 + 1, hours_ago=24 * 60)
+    add("refund_outside_window_invoice",
+        "Paid invoice 60 days before AS_OF; a refund must be refused by the window rule.",
+        {"customer_id": str(c4["id"]), "invoice_id": "INV-0004-M1"})
+
     # --- surface/edge tickets (hand-written, statuses all 'new') ----------
     tid_unknown = _insert_ticket(
         conn, "unknown-sender", None,
@@ -210,15 +232,15 @@ def seed_edge_cases(
     add("unknown_sender_ticket", "No matching customer; agent must not guess identity.", {"ticket_id": tid_unknown})
 
     tid_window = _insert_ticket(
-        conn, "refund-window-old-invoice", c1["id"],
+        conn, "refund-window-old-invoice", c4["id"],
         "Requesting a refund for a charge from months ago",
         "I was charged earlier this year and I would like the full amount back. The invoice "
-        "INV-0001-M2 was for a plan I stopped using after week one.",
+        "INV-0004-M1 was for a plan I stopped using after week one.",
         hours_ago=5,
     )
     add("refund_outside_window",
         "Refund ask on a 60-day-old invoice; tools must refuse and explain the window policy.",
-        {"ticket_id": tid_window, "customer_id": str(c1["id"]), "invoice_id": "INV-0001-M2"})
+        {"ticket_id": tid_window, "customer_id": str(c4["id"]), "invoice_id": "INV-0004-M1"})
 
     tid_full = _insert_ticket(
         conn, "fully-refunded-invoice", c2["id"],

@@ -33,7 +33,7 @@
     },
     {
       "name": "invoice_partially_refunded",
-      "description": "30% already refunded; tools must clamp to the remaining 70%.",
+      "description": "30% already refunded; a full-amount ask must be rejected on the remaining balance (the tool rejects, it never clamps silently).",
       "entities": {
         "customer_id": "6e3e396e-2f0f-5ec8-a40c-8afa16a0e50c",
         "invoice_id": "INV-0003-M4",
@@ -69,6 +69,14 @@
       }
     },
     {
+      "name": "refund_outside_window_invoice",
+      "description": "Paid invoice 60 days before AS_OF; a refund must be refused by the window rule.",
+      "entities": {
+        "customer_id": "f7961bec-d22c-5a05-adaa-e2bead3d2717",
+        "invoice_id": "INV-0004-M1"
+      }
+    },
+    {
       "name": "unknown_sender_ticket",
       "description": "No matching customer; agent must not guess identity.",
       "entities": {
@@ -80,8 +88,8 @@
       "description": "Refund ask on a 60-day-old invoice; tools must refuse and explain the window policy.",
       "entities": {
         "ticket_id": "5973c116-8d08-5f5f-9691-9134f49c6fa7",
-        "customer_id": "e8b0d2e4-0dc5-5659-81c6-f7e8bcefdfaa",
-        "invoice_id": "INV-0001-M2"
+        "customer_id": "f7961bec-d22c-5a05-adaa-e2bead3d2717",
+        "invoice_id": "INV-0004-M1"
       }
     },
     {

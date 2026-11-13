@@ -25,6 +25,8 @@ KB_DIR = Path(__file__).resolve().parents[2] / "data" / "kb"
         "We are going to send your refund this week [KB-006].",
         "We initiated your refund immediately [KB-006].",
         "You'll get your refund in a few days [KB-006].",
+        "I have refunded $20.03 to your card [KB-006].",
+        "We've refunded the full amount [KB-006].",
     ],
 )
 def test_commitment_phrasings_are_denied(reply: str) -> None:

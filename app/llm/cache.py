@@ -33,13 +33,20 @@ def load_cached(conn: Any, key: str) -> dict[str, Any] | None:
 
 
 def store_cached(
-    conn: Any, key: str, response: dict[str, Any], tokens_in: int, tokens_out: int
+    conn: Any,
+    key: str,
+    response: dict[str, Any],
+    tokens_in: int,
+    tokens_out: int,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> None:
     conn.execute(
         """
-        INSERT INTO llm_cache (key, response, tokens_in, tokens_out)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO llm_cache (key, response, tokens_in, tokens_out, provider, model)
+        VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (key) DO NOTHING
         """,
-        (key, json.dumps(response), tokens_in, tokens_out),
+        (key, json.dumps(response), tokens_in, tokens_out, provider, model),
     )

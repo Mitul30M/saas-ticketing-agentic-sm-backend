@@ -59,3 +59,27 @@ def test_cache_key_changes_when_request_changes() -> None:
     base = cache_key("stub", "model", messages, {"temperature": 0})
     assert base != cache_key("stub", "model", messages, {"temperature": 1})
     assert base != cache_key("stub", "model", [{"role": "user", "content": "different"}], {"temperature": 0})
+
+
+def test_schema_error_names_the_offending_field() -> None:
+    """A real model omitted `reason`; the old error hid which field was wrong."""
+    from pydantic import BaseModel
+
+    class NeedsReason(BaseModel):
+        reason: str
+
+    with pytest.raises(LLMError, match=r"\(reason: Field required\)"):
+        parse_structured('{"ok": true}', NeedsReason)
+
+
+def test_support_check_reason_is_optional() -> None:
+    """gpt-oss-120b dropped `reason`; the verdict itself is still usable."""
+    from app.agent.nodes.grounding import SupportCheckOutput
+
+    verdict = SupportCheckOutput.model_validate({
+        "supported": True,
+        "conflicting": False,
+        "claims": [{"claim": "Refunds are windowed.", "kb_id": "KB-006"}],
+    })
+    assert verdict.supported is True
+    assert verdict.reason == ""
