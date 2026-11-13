@@ -19,7 +19,11 @@ export API=http://localhost:8000
 export TOKEN=demo-token                      # AGENT_TOKEN; dashboard routes fail closed (503) if unset
 export AUTH="Authorization: Bearer $TOKEN"
 export PGPASSWORD=nimbus
-export PSQL="psql -h localhost -p 5433 -U nimbus -d nimbus"
+# macOS defaults to zsh, which does NOT word-split unquoted variables: with
+# PSQL="psql -h ..."; $PSQL -c ... you get `command not found: psql -h localhost ...`.
+# A function works in zsh and bash alike, and keeps every `$PSQL ...` line below valid.
+psql() { command psql -h localhost -p 5433 -U nimbus -d nimbus "$@"; }
+PSQL=psql
 ```
 
 > **First run vs re-run — read this first.**
@@ -69,8 +73,9 @@ make migrate
 # NOTE: the seed asserts exactly 101 customers, so run it on a clean volume.
 make seed
 
-# Chunk + embed the KB (30 articles -> 49 chunks). Idempotent. Runs on the HOST,
-# so it does NOT warm the model cache inside the API/worker containers.
+# Chunk + embed the KB (30 articles -> 49 chunks). Idempotent. Runs on the HOST, so it
+# uses the host HF cache — the containers do not need it: the image bakes the model and
+# preloads it at boot (see the note below).
 make ingest-kb
 
 # Clean slate: DELETE the compose DB volume, then up + migrate + seed + ingest again.
@@ -143,8 +148,8 @@ Restart the worker after the suite: `AGENT_TOKEN=demo-token docker compose up -d
 
 ```bash
 # Evaluation + grounding evidence (dev set only; never tune on eval labels).
-make grounding-report      # writes eval/results/grounding_dev.csv
-make eval                  # writes eval/results/ (see eval/run_eval.py)
+make grounding-report      # writes eval/results/grounding_dev.csv (the only real number today)
+make eval                  # NOT IMPLEMENTED: prints what the Phase 6 harness still needs
 ```
 
 ---
@@ -157,12 +162,25 @@ prints the final state + trace. Use it to watch the gate without the API.
 ```bash
 # Pick a ticket id. The CLI uses its OWN checkpoint thread (`ticket:<id>`), so a
 # ticket already run through the API starts a fresh CLI run — no state is shared.
-# (Seed tickets are the oldest; DESC picks the newest ticket in this DB.)
-TID=$($PSQL -At -c "SELECT id FROM tickets ORDER BY received_at DESC LIMIT 1")
+# NOTE the `from_email IS NOT NULL` filter: the two newest rows are the seeded
+# unknown-sender / ambiguous edge cases, which fail closed with BAD_TICKET before
+# triage (by design). The CLI needs a ticket with a transport sender to reach the
+# gate.
+TID=$($PSQL -At -c "SELECT id FROM tickets WHERE from_email IS NOT NULL
+                    ORDER BY received_at DESC LIMIT 1")
+echo "$TID"
 
 # Fresh run: intake -> screen -> triage -> plan -> tools -> retrieve -> grounding ->
 # draft -> propose -> approval_gate (interrupt). Prints the paused approval payload.
+# The run warms the embedding model first, so kb_search here is ~20 ms, not ~4.5 s.
 uv run python -m app.agent.run --ticket "$TID"
+
+# Re-running the FRESH command on a thread that is paused is refused on purpose:
+#   "this ticket's CLI thread is paused at the approval gate - resume it with
+#    --resume-approved or --resume-rejected (or use another ticket for a fresh run)."
+# Resuming must be explicit; silently discarding a pending approval would be unsafe.
+# A thread that finished (escalated/resolved) is reset before a fresh run, so the
+# step budget and stale escalation do not leak into the next run.
 
 # Same ticket, resume as APPROVED: the graph records the decision and finalises.
 # (The CLI does not execute anything; the API/job path owns execution.)
@@ -184,6 +202,16 @@ $PSQL -c "SELECT node, kind, status, error, duration_ms, tokens_in, tokens_out, 
 > Stub mode is plumbing/CI only (AGENTS §6). Its triage is fixed to `invoice_question`, so the
 > refund/plan-change branches are exercised with scripted LLMs in `tests/integration/test_agent_graph.py`
 > and with the `propose_*` tools in §6.8/§6.9 — not by pretending the stub chose them.
+>
+> **If the run stops immediately with `BAD_TICKET` / "missing body text or a transport sender"**, you
+> picked the seeded unknown-sender ticket: use the filtered query above. That path is correct
+> fail-closed behaviour (invariant 11) and the trace shows only `escalate_to_human` + `finalize`
+> with `TOTAL tokens: in=0 out=0` — it never called the model.
+>
+> **The CLI does not project the run onto the ticket row.** It writes `trace_events` and the graph's
+> tool updates (`escalated`), but `tickets.status` / `escalation_reason` are only written by the
+> API/worker path (`apply_run_result`). Judge a CLI run by the FINAL STATE and the trace, not by
+> `SELECT status, escalation_reason FROM tickets`.
 
 ---
 
@@ -465,8 +493,9 @@ uses — the approval/execution path is fully real. The refund idempotency key i
 
 ```bash
 # Use the ticket from §4: its sender is a seeded customer, so the ownership check
-# passes. If you re-sourced the shell, set TID first:
-#   TID=$($PSQL -At -c "SELECT id FROM tickets ORDER BY received_at DESC LIMIT 1")
+# passes. If you re-sourced the shell, set TID first (the sender filter matters:
+# without it you may pick the unknown-sender edge case and get customer_id = NULL):
+#   TID=$($PSQL -At -c "SELECT id FROM tickets WHERE from_email IS NOT NULL ORDER BY received_at DESC LIMIT 1")
 export CUSTOMER=$($PSQL -At -c "SELECT customer_id FROM tickets WHERE id='$TID'")
 export INVOICE=$($PSQL -At -c "SELECT i.id FROM invoices i JOIN payments p ON p.invoice_id=i.id
   WHERE i.customer_id='$CUSTOMER' AND p.status='succeeded'
@@ -655,7 +684,7 @@ $PSQL -At -c "SELECT status, thread_id FROM tickets WHERE id='$RTID';"
 # Requires §6.7: picks the "Quantum fax" ticket that escalated there.
 # Pick a ticket currently awaiting_human, then run it again.
 export ETID=$($PSQL -At -c "SELECT id FROM tickets WHERE status='awaiting_human' AND subject LIKE 'Quantum%' LIMIT 1")
-$PSQL -c "SELECT escalated, escalation_reason FROM tickets WHERE id='$ETID';"   # true | timeout/NOT_IN_KB
+$PSQL -c "SELECT escalated, escalation_reason FROM tickets WHERE id='$ETID';"   # true | LOW_CONFIDENCE
 curl -s -X POST $API/api/tickets/$ETID/run -H "$AUTH" -H "Idempotency-Key: recover-$RANDOM"
 # wait for it to settle, then:
 $PSQL -c "SELECT status, escalated, escalation_reason FROM tickets WHERE id='$ETID';"
@@ -698,7 +727,7 @@ uv run pytest tests/unit/test_promise_denylist.py -q
 ## 7. Database spot-checks (copy/paste)
 
 > `$TID` comes from §4. If you skipped those, set it first:
-> `TID=$($PSQL -At -c "SELECT id FROM tickets ORDER BY received_at DESC LIMIT 1")`.
+> `TID=$($PSQL -At -c "SELECT id FROM tickets WHERE from_email IS NOT NULL ORDER BY received_at DESC LIMIT 1")`.
 > **Do not reuse `$REF` from §6.8 here:** it is `executed` by then. The state-machine
 > check below needs a row that is still `pending_approval`.
 
@@ -791,7 +820,12 @@ SQL
 |---|---|
 | `integration` tests "pass" instantly with 0 items | DB not reachable; start `docker compose up -d db` or set `TEST_DATABASE_URL`. |
 | `make seed` assertion `101` fails | Extra customers exist (tests/walkthrough rows). Use `docker compose down -v` for a clean seed. |
-| First ticket escalates with `escalation_reason=timeout`, trace shows `kb_search ... error=timeout` | Cold HF model load exceeded `TOOL_TIMEOUT_S=8`. Warm it (§1) or raise `TOOL_TIMEOUT_S`; re-run the ticket. |
+| `zsh: command not found: psql -h localhost -p 5433 …` | You set `PSQL="psql -h …"`; zsh does not word-split unquoted variables. Re-source the shared block at the top (it defines a `psql()` function and `PSQL=psql`), or run `setopt shwordsplit`. |
+| CLI run stops instantly with `BAD_TICKET` / "missing body text or a transport sender" | You picked the seeded unknown-sender ticket. Use `WHERE from_email IS NOT NULL` (§3). Correct fail-closed behaviour: the trace has only `escalate_to_human` + `finalize`, zero LLM tokens. |
+| `SELECT status, escalation_reason` is unchanged after a CLI run | The CLI does not call `apply_run_result`; only the API/worker projects the run onto the ticket. Read the FINAL STATE / `trace_events` instead. |
+| CLI prints "this ticket's CLI thread is paused at the approval gate" | By design: resume with `--resume-approved` / `--resume-rejected`, or pick another ticket for a fresh run. |
+| CLI run ends with `STEP_LIMIT` on a re-run | Fixed in the CLI (it resets run-scoped state and refuses paused threads). Update your checkout; if it persists, delete the thread's checkpoints for that ticket. |
+| `escalation_reason=timeout` with `kb_search … error=timeout` | Should not happen since `61b53ed`: the model is baked in and preloaded at boot. Check `docker compose logs api \| grep "embedding model warm"`; if it is missing, the warm-up failed (logged as a warning) and retrieval fails closed. |
 | `503 dashboard authentication is not configured` | `AGENT_TOKEN` is empty. Set it and restart the API. |
 | `409 request is already in progress` with `Retry-After` | A concurrent request holds the same Idempotency-Key; retry after a second (by design). |
 | Decision returns `409 ticket is not waiting for a reply approval` | Wrong ticket id or no visible draft; the decision must target a paused reply, or the draft already changed. |
