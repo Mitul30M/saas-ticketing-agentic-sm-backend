@@ -77,6 +77,8 @@ open http://localhost:3000             # /submit is public; /dashboard asks for 
 - The browser never sees `AGENT_TOKEN`: the container proxies to `http://api:8000` server-side.
   That also means you do **not** need `CORS_ORIGINS` for the console.
 - If the console repo is absent, only `--profile web` fails; db/api/worker are unaffected.
+- **Which ticket to submit, from which email, and what should happen:** `docs/DEMO_DATA.md` has the
+  full catalogue (customer + invoice table, 16 scenarios, the 5-minute path, and DB spot-checks).
 
 ### D. Switch provider without editing `.env`
 
