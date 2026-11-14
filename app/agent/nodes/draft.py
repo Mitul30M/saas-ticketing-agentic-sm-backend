@@ -19,7 +19,7 @@ from app.agent.resilience import call_llm
 from app.agent.state import AgentState
 from app.llm.base import LLMClient
 
-PROMPT_VERSION = "draft_v6"
+PROMPT_VERSION = "draft_v7"
 _PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / f"{PROMPT_VERSION}.txt"
 
 CITATION_RE = re.compile(r"\[(KB-[A-Za-z0-9_-]+)\]")

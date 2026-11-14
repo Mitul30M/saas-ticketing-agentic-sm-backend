@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from app.agent.nodes.common import trace_node
-from app.agent.record import build_account_record
+from app.agent.record import build_account_record, build_plan_record
 from app.agent.state import AgentState
 from app.config import settings
 from app.tools.registry import ToolRegistry
@@ -226,7 +226,17 @@ def make_tool_executor_node(registry: ToolRegistry):
                     "kind": "refund", "customer_id": customer_id,
                     "invoice_id": invoice_id, "amount_cents": amount_cents,
                     "invoice": data,
-                }
+                },
+                # The draft runs before the proposal, so it cannot look the
+                # invoice up again. Hand it the same verified facts the reply
+                # branch gets, plus the amount about to go up for approval
+                # (F18: the old draft asked for a payment confirmation it had
+                # just read). A zero remainder is not a proposal, so it is
+                # omitted; the refusal path amends the draft instead.
+                "account_record": build_account_record(
+                    data,
+                    requested_refund_cents=amount_cents if amount_cents > 0 else None,
+                ),
             }
         subscription = registry.call(
             "get_subscription",
@@ -263,7 +273,13 @@ def make_tool_executor_node(registry: ToolRegistry):
             "action_context": {
                 "kind": "plan_change", "customer_id": customer_id,
                 "to_plan_id": target, "subscription": subscription.data,
-            }
+            },
+            # Same reason as the refund branch: let the draft name the current
+            # and requested plan instead of asking the customer which one they
+            # are on.
+            "account_record": build_plan_record(
+                subscription.data or {}, active_plan, target
+            ),
         }
 
     return tool_executor

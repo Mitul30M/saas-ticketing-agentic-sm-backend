@@ -24,7 +24,7 @@ from app.agent.state import AgentState
 from app.config import settings
 from app.llm.base import LLMClient
 
-PROMPT_VERSION = "support_v5"
+PROMPT_VERSION = "support_v6"
 
 # COVERAGE.md marks these categories as deliberately uncovered ("escalate"). The
 # support check is an LLM and may still say yes to a neighbouring article — the

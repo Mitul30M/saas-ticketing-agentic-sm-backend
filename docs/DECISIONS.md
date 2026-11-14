@@ -563,3 +563,20 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - Cost: two extra tool calls on invoice questions and a wider plan; eval `expected_tools` changed for
   five rows, and two duplicate-email senders now escalate at identity instead of drafting. The
   published capture predates this and needs a recapture.
+
+### 2026-11-14 · F18: action drafts read the record too
+- The reply branch learned to read a named invoice before answering (F17), but the refund and
+  plan-change branches still discarded what they had just read. The refund draft for `7ac3f763`
+  asked for a payment confirmation the agent already held, and never named the invoice, the refunded
+  amount or the pending proposal.
+- Both action branches now attach an `ACCOUNT_RECORD`: the refund branch adds
+  `requested_refund_cents` (the amount about to be proposed, computed deterministically), and the
+  plan branch adds current/target plan, cycle and period end. Payment lines include
+  `amount_refunded_cents` so "already refunded" and "remaining" are stateable.
+- Rejected: moving `draft_reply` after `propose_actions` so the draft could truthfully say
+  "proposed". A draft rejected for citations or promise language would then leave a pending request
+  that the gate never sees. Instead the draft may say a refund/plan change *is proposed for
+  approval*, and F16's deterministic refusal line replaces that reading when the tool refuses.
+- Cost: `draft_v7` / `support_v6` change prompt hashes, so the frozen replay cache no longer matches
+  HEAD. The published capture stays reproducible at tag `eval-freeze` (`599af3b`) until the next
+  real-model run.

@@ -393,6 +393,54 @@ scenario shows the tool calls and a factual draft. 354 tests pass.
 
 ---
 
+## F18 — A refund draft asked for data the agent had just read (fixed, needs recapture)
+
+**Symptom:** seeded ticket `7ac3f763-e36d-525f-aa17-d4491ed7dfc3` ("Duplicate charge on
+INV-0003-M4") was handled correctly end to end — `lookup_customer` → `get_invoice`
+(`partially_refunded`; 2003 paid, 601 already refunded), retrieval and grounding passed, a refund of
+**1402** was proposed, approved by a human and executed once. The persisted draft, however, ended:
+
+> "…Refunds are only possible for successful payments made within 30 days… **Please provide the
+> payment confirmation (date, amount, and transaction ID) for the charge you believe is
+> duplicated** so we can verify the payment status and proceed accordingly [KB-002]."
+
+The agent asked for information it had read one step earlier, and never mentioned the invoice, the
+remaining balance, or the pending proposal.
+
+**Root cause (two layers):**
+1. F17 attached `ACCOUNT_RECORD` only on the **reply** branch. The refund and plan-change branches
+   called `get_invoice` / `get_subscription`, used the result to validate the action, then discarded
+   the facts before grounding/draft. The draft therefore saw KB chunks only, and KB-002's own
+   "provide the invoice ID and payment confirmation" wording sent it back to the customer.
+2. The record projection dropped `amount_refunded_cents`, so even if it had been passed, the reply
+   could not have stated what was already refunded or what remained.
+
+**Fix:**
+- The refund branch attaches the whitelisted invoice record plus `requested_refund_cents` (the
+  deterministic amount about to go up for approval). The plan branch attaches
+  `build_plan_record()` (current plan, target plan, billing cycle, period end). Both flow into
+  grounding and draft exactly like the reply record.
+- Payment lines now carry `amount_refunded_cents`; still whitelisted customer-visible facts, no
+  payment ids or customer ids.
+- `draft_v7` must open with what the record shows, **must not ask for information already present
+  in the record**, and may say a refund or plan change is *proposed for approval* — never approved,
+  processed or promised for a date.
+- `support_v6` extends the `kb_id: "record"` evidence rule from invoices to subscription records.
+
+The draft is still written **before** the proposal on purpose: a rejected draft must not leave an
+orphan pending request. If the tool then refuses, F16's deterministic refusal line is appended to
+the persisted draft, so "proposed" never survives as an unchecked claim.
+
+**Evidence:** `tests/unit/test_account_record.py` (refunded amount, requested refund, plan record),
+`tests/integration/test_agent_graph.py::test_refund_draft_reads_the_record_and_never_asks_for_it_again`,
+`…::test_plan_change_draft_reads_the_current_and_target_plan`; 358 tests pass.
+
+**Recapture pending:** the running prompts are now `draft_v7` / `support_v6`, so the frozen capture
+`20261114-0852-groq` replays only from tag **`eval-freeze`** (commit `599af3b`). F18 and the
+KB-002/003 vocabulary fix (F7) should ship together in the next capture.
+
+---
+
 ## Method notes
 
 - Every finding above is reproducible: `make eval-stub` for the harness, `make eval-ablation` for

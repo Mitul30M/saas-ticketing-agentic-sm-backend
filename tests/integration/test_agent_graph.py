@@ -803,6 +803,9 @@ def test_fully_refunded_invoice_reports_a_business_rule_not_a_validation_error(
         assert result["outcome"] == "escalated"
         assert result["escalation"]["reason_code"] == "business_rule"
         assert "nothing left to refund" in result["escalation"]["detail"]
+        # the record reaches the draft, but a zero remainder is not a proposal
+        assert result["account_record"]["invoice_id"] == t.inv_a
+        assert "requested_refund_cents" not in result["account_record"]
 
         draft = migrated_conn.execute(
             "SELECT draft_reply FROM tickets WHERE id = %s", (ticket,)
@@ -934,3 +937,85 @@ def test_support_check_accepts_a_claim_backed_by_the_account_record(
     assert result["grounding"]["supported"] is True
     assert result["grounding"]["claims"][0]["kb_id"] == "record"
     assert result.get("draft")
+
+
+class _DraftPromptRecorder(ScriptedLLM):
+    """ScriptedLLM that keeps the draft prompts so a test can prove what the
+    model was actually shown."""
+
+    def __init__(self, category: str) -> None:
+        super().__init__(category=category)
+        self.prompts: list[str] = []
+
+    def generate(self, messages: Any, schema: Any = None, **kwargs: Any) -> Any:
+        if schema is not None and schema.__name__ == "DraftOutput":
+            self.prompts.append("\n".join(str(m.get("content")) for m in messages))
+        return super().generate(messages, schema, **kwargs)
+
+
+def test_refund_draft_reads_the_record_and_never_asks_for_it_again(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    """F18: the refund branch already read the invoice, so the draft must state
+    what it shows (including the amount already refunded and the amount about
+    to be proposed) instead of asking for a payment confirmation."""
+    t = two_customers
+    migrated_conn.execute(
+        "UPDATE invoices SET status = 'partially_refunded' WHERE id = %s", (t.inv_a,)
+    )
+    migrated_conn.execute(
+        "UPDATE payments SET amount_refunded_cents = 1000 WHERE invoice_id = %s",
+        (t.inv_a,),
+    )
+    ticket = _mk_ticket(
+        migrated_conn, t.alice_id, "ITST refund record",
+        f"Please refund the duplicate charge on invoice {t.inv_a} for $40.00.",
+    )
+    client = _DraftPromptRecorder("refund_request")
+    saver = make_checkpointer(settings.database_url)
+    graph = build_graph(db_pool, client=client, checkpointer=saver)
+    try:
+        result = _invoke(graph, ticket)
+    finally:
+        saver.conn.close()  # type: ignore[union-attr]
+
+    assert client.prompts, "the draft prompt was never sent"
+    prompt = client.prompts[-1]
+    assert "<<<ACCOUNT_RECORD" in prompt
+    assert f"invoice {t.inv_a}" in prompt
+    assert "refunded=1000" in prompt
+    assert "refund requested for approval: 4000 cents" in prompt
+    assert result["account_record"]["requested_refund_cents"] == 4000
+    assert result["action_proposed"] is True
+    request = migrated_conn.execute(
+        "SELECT status, amount_cents FROM refund_requests WHERE ticket_id = %s",
+        (ticket,),
+    ).fetchone()
+    assert request == {"status": "pending_approval", "amount_cents": 4000}
+
+
+def test_plan_change_draft_reads_the_current_and_target_plan(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    """F18: the plan branch read the subscription, so the draft names the
+    current and requested plan instead of asking which plan the customer is on."""
+    t = two_customers
+    ticket = _mk_ticket(
+        migrated_conn, t.alice_id, "ITST plan record",
+        "Please move me from Pro to Business at the next billing cycle.",
+    )
+    client = _DraftPromptRecorder("plan_change")
+    saver = make_checkpointer(settings.database_url)
+    graph = build_graph(db_pool, client=client, checkpointer=saver)
+    try:
+        result = _invoke(graph, ticket)
+    finally:
+        saver.conn.close()  # type: ignore[union-attr]
+
+    assert client.prompts, "the draft prompt was never sent"
+    prompt = client.prompts[-1]
+    assert "<<<ACCOUNT_RECORD" in prompt
+    assert "current_plan=ITST-PLAN" in prompt
+    assert "target_plan=PLAN-BUSINESS" in prompt
+    assert result["account_record"]["record_type"] == "plan"
+    assert result["action_proposed"] is True

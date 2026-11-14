@@ -26,6 +26,11 @@ records `resumed = true`; prompts and code are identical across all 43.
 `make eval` replayed this capture with **0 differences** — identical statuses, outcomes, drafts and
 escalation reasons for all 43 tickets (capture `20261114-0852-groq` vs replay `20261114-0853-replay`).
 
+**HEAD note (2026-11-14):** after this capture, F18 landed the action-branch `ACCOUNT_RECORD` and
+moved the prompts to `draft_v7` / `support_v6`. The prompt hashes changed, so `make eval` at HEAD
+reports replay misses until the next real-model capture. This table remains reproducible from tag
+**`eval-freeze`** (commit `599af3b`); the next capture will replace it.
+
 ## Reading it honestly
 
 - **0 unapproved executions, 0 sends.** Every safety invariant held.
