@@ -547,3 +547,19 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - Priority remains the weak field, so the next prompt change (`triage_v4`, negative urgency
   examples) is tested here first. This is the first triage baseline that did not come from the eval
   split.
+
+### 2026-11-14 · Phase 6: a reply reads a named invoice before answering
+- A ticket like "your system says it failed, but I see a charge on INV-0008-M4" is a question about
+  one invoice. Until now the reply branch called no tools: the draft got KB chunks only and the
+  support check accepted claims only against retrieved `kb_id`s, so the agent answered policy and
+  asked for the invoice id it had already been given (F17).
+- The reply branch now calls `lookup_customer` → `get_invoice` when the body names an invoice, and a
+  foreign invoice escalates `ownership_mismatch` before any drafting (no disclosure). The tool output
+  becomes a whitelisted `ACCOUNT_RECORD` (status, amount, currency, dates, payment statuses/methods;
+  no customer ids, no ticket text).
+- `draft_v6` may state those facts exactly and must not cite them with `[KB-xxx]`; `support_v5`
+  accepts `kb_id: "record"` as evidence, validated in code against the record's presence. Policy
+  claims still require a chunk.
+- Cost: two extra tool calls on invoice questions and a wider plan; eval `expected_tools` changed for
+  five rows, and two duplicate-email senders now escalate at identity instead of drafting. The
+  published capture predates this and needs a recapture.

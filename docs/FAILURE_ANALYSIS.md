@@ -96,9 +96,15 @@ greater than 0`.
 Fail-closed and safe (nothing is proposed), but the reason is misleading for both the operator and
 the eval's reason-code analysis.
 **Root cause:** the "no stated amount ⇒ remainder" rule in `orchestration.py` can produce 0.
-**Status:** open. Proposed fix: when the derived remainder is 0, return `escalation_update(
-"business_rule", "nothing left to refund on this invoice")` instead of calling the tool. Cheap,
-but it changes an orchestration branch, so it should land with its own test.
+**Fix:** `propose_actions` refuses *before* calling the tool when the derived refund amount is 0:
+`business_rule` / "nothing left to refund on this invoice (already fully refunded)". It reuses the
+F16 refusal path, so the persisted draft is amended, and it writes a `decision` trace row carrying
+the sentence (`error_detail` in `/trace`). No `invalid_input` reaches the operator or the reason
+statistics any more.
+**Evidence:** `tests/integration/test_agent_graph.py::test_fully_refunded_invoice_reports_a_business_rule_not_a_validation_error`
+(fully-refunded invoice, "refund the full amount", no `$` → 0 cents): escalates `business_rule`,
+draft amended, no `refund_requests` row, decision trace row with the message. Live re-run of the
+same ticket shape after a clean seed confirms it.
 
 ## F6 — The promise denylist missed "I have refunded"
 
@@ -331,6 +337,50 @@ human approver, we'll update you…" — a proposal that was never created.
 **Evidence:** `tests/unit/test_refusal_copy.py` (wording per code, no digits/cents),
 `tests/unit/test_tool_registry.py` (trace keeps the message), and the injection test in
 `tests/integration/test_agent_graph.py` now asserts the persisted draft was amended. 346 tests pass.
+
+## F17 — "You still billed me" was answered from policy, without reading the invoice
+
+**Ticket:** `9bab729d` — *"Your system says payment failed for INV-0008-M4, but I see a charge on my
+statement. Something is very wrong here."* (`samantha.roach.8@…`)
+
+**Expected:** look at the invoice and answer with facts. The record was one tool call away:
+
+```
+INV-0008-M4  paid  2003   issued 2026-10-29
+  payment succeeded 2003 (visa_1111, 2026-10-29)
+  payment failed    1003 (mc_5555)
+```
+
+**Actual:** `triage → kb_search → grounding → draft → escalate` — no `lookup_customer`, no
+`get_invoice`. The draft recited failed-vs-pending policy and asked for the invoice id it already
+had.
+
+**Root cause (structural, four layers):**
+1. `make_plan_node` maps only `refund_request`/`plan_change` to a tool branch; every other category
+   becomes `reply`.
+2. The reply branch in `tool_executor` returned immediately — `get_invoice` was unreachable outside
+   the refund path.
+3. The draft prompt received KB chunks only, so the model had no account facts to state.
+4. The grounding contract accepted claims only against retrieved `kb_id`s, so an account fact would
+   have been rejected as unsupported even if the prompt had carried it.
+
+**Fix:**
+- Reply tickets that name an invoice now call `lookup_customer` → `get_invoice` before retrieval
+  (a foreign/missing invoice escalates `ownership_mismatch` / `not_found` — fail closed, no
+  disclosure).
+- The tool output is projected into a whitelisted `ACCOUNT_RECORD` block (invoice status, amount,
+  currency, dates, payments with status/method/paid_at; no customer ids, no internal ids, no ticket
+  text) carried in graph state into the grounding and draft prompts.
+- `draft_v6` may state record facts exactly and must not attach `[KB-xxx]` to them; `support_v5`
+  accepts a claim as `kb_id: "record"`, validated in code against the presence of a record.
+- Eval gold updated: five answer rows now expect `lookup_customer`+`get_invoice`; two rows whose
+  sender has a duplicate email now escalate at identity instead of drafting (E-020, E-021).
+
+**Evidence:** `tests/unit/test_account_record.py` (whitelist, rendering),
+`tests/integration/test_agent_graph.py::test_reply_ticket_naming_an_invoice_reads_it_before_answering`,
+`…::test_reply_ticket_naming_someone_elses_invoice_escalates`,
+`…::test_support_check_accepts_a_claim_backed_by_the_account_record`; live rerun of the same
+scenario shows the tool calls and a factual draft. 354 tests pass.
 
 ---
 

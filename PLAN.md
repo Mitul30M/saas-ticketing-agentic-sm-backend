@@ -231,7 +231,8 @@ START
   → intake_validate         (schema check, content_hash dedupe, size limits)
   → injection_screen        (heuristic + classifier prompt; FLAGS only; never alters policy)
   → triage                  (category, priority, sentiment + reasons; deterministic queue map)
-  → plan                    (LLM picks tools needed; bounded)
+  → plan                    (category picks the branch: refund | plan_change | reply;
+                             a reply that names an invoice reads it first — F17)
   ⇄ tool_executor           (runs allow-listed tools; retries on retryable errors; step_count++)
   → grounding_check         (retrieval-score gate + LLM support check + citation validation)
   ├─ unsupported / low confidence / policy-sensitive-without-evidence ──► escalate ─► finalize

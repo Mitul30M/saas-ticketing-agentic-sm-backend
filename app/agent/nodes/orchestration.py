@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.agent.nodes.common import trace_node
+from app.agent.record import build_account_record
 from app.agent.state import AgentState
 from app.config import settings
 from app.tools.registry import ToolRegistry
@@ -86,11 +88,59 @@ def make_plan_node():
 def make_tool_executor_node(registry: ToolRegistry):
     def tool_executor(state: AgentState) -> dict[str, Any]:
         action = state.get("plan")
-        if action not in {"refund", "plan_change"}:
-            return {"action_context": {"kind": "reply"}}
         ticket_id = str(state["ticket_id"])
         trace_id = str(state["trace_id"])
         context = ToolContext(trace_id=trace_id, timeout_s=settings.tool_timeout_s)
+        text = f"{state.get('subject', '')}\n{state.get('body', '')}"
+        invoice_match = INVOICE_RE.search(text)
+
+        if action not in {"refund", "plan_change"}:
+            if invoice_match is None:
+                return {"action_context": {"kind": "reply"}}
+            # "Your system says the payment failed, but I see a charge" is a
+            # question about one invoice, not about policy. Read the record
+            # before answering; a foreign invoice escalates instead.
+            customer = registry.call(
+                "lookup_customer", {"ticket_id": ticket_id},
+                ticket_id=ticket_id, ctx=context,
+            )
+            if not customer.ok:
+                return {
+                    "outcome": "escalated",
+                    "escalation": {
+                        "reason_code": (
+                            customer.error.code.value if customer.error else "TOOL_FAILURE"
+                        ),
+                        "detail": "customer lookup failed before reading the invoice",
+                    },
+                }
+            invoice = registry.call(
+                "get_invoice",
+                {
+                    "ticket_id": ticket_id,
+                    "customer_id": str((customer.data or {}).get("customer_id")),
+                    "invoice_id": invoice_match.group(0).upper(),
+                },
+                ticket_id=ticket_id, ctx=context,
+            )
+            if not invoice.ok:
+                return {
+                    "outcome": "escalated",
+                    "escalation": {
+                        "reason_code": (
+                            invoice.error.code.value if invoice.error else "TOOL_FAILURE"
+                        ),
+                        "detail": "invoice lookup failed for a question about that invoice",
+                    },
+                }
+            return {
+                "action_context": {
+                    "kind": "reply",
+                    "invoice_id": invoice_match.group(0).upper(),
+                },
+                "account_record": build_account_record(invoice.data or {}),
+            }
+
         customer = registry.call(
             "lookup_customer", {"ticket_id": ticket_id},
             ticket_id=ticket_id, ctx=context,
@@ -104,9 +154,7 @@ def make_tool_executor_node(registry: ToolRegistry):
                 },
             }
         customer_id = str((customer.data or {}).get("customer_id"))
-        text = f"{state.get('subject', '')}\n{state.get('body', '')}"
         if action == "refund":
-            invoice_match = INVOICE_RE.search(text)
             if invoice_match is None:
                 return {
                     "outcome": "escalated",
@@ -287,31 +335,51 @@ def make_propose_actions_node(registry: ToolRegistry, pool: Any | None = None):
         else:
             args = {**common, "to_plan_id": context["to_plan_id"], "effective": "next_cycle"}
             name = "propose_plan_change"
-        result = registry.call(name, args, ticket_id=ticket_id, ctx=tool_context)
-        if not result.ok:
-            code = result.error.code.value if result.error else None
+
+        def refuse(code: str, detail: str) -> dict[str, Any]:
+            """Escalate with a policy reason and amend the persisted draft.
+
+            The draft node has already written the model text; without this the
+            UI shows a proposal that was never created. The decision row carries
+            the sentence so `/trace` can show *which* rule refused the action.
+            """
             base = str(state.get("draft") or "").strip()
             refusal = refusal_sentence(str(context["kind"]), code)
             amended = f"{base}\n\n{refusal}" if base else refusal
-            # The draft node already persisted the model text; amend the row so
-            # the UI never shows a proposal that does not exist.
             if pool is not None:
                 with pool.connection() as conn:
                     conn.execute(
                         "UPDATE tickets SET draft_reply = %s WHERE id = %s",
                         (amended, ticket_id),
                     )
+                trace_node(
+                    pool, ticket_id, str(state["trace_id"]), name, "decision",
+                    {"code": code},
+                    {"error": {"code": code, "message": detail, "retryable": False}},
+                    status="error", error=code,
+                )
             return {
                 "outcome": "escalated",
-                "escalation": {
-                    "reason_code": code or "TOOL_FAILURE",
-                    "detail": (
-                        f"action proposal refused: "
-                        f"{result.error.message if result.error else 'tool failure'}"
-                    ),
-                },
+                "escalation": {"reason_code": code, "detail": detail},
                 "draft": amended,
             }
+
+        # An invoice with nothing left to refund cannot produce a valid proposal
+        # (`amount_cents` is a PositiveInt); catch it here so the reason is a
+        # policy rule, not a validation error. The draft is still amended.
+        if context["kind"] == "refund" and int(context.get("amount_cents") or 0) <= 0:
+            return refuse(
+                "business_rule",
+                "nothing left to refund on this invoice (already fully refunded)",
+            )
+
+        result = registry.call(name, args, ticket_id=ticket_id, ctx=tool_context)
+        if not result.ok:
+            return refuse(
+                result.error.code.value if result.error else "TOOL_FAILURE",
+                f"action proposal refused: "
+                f"{result.error.message if result.error else 'tool failure'}",
+            )
         return {
             "action_proposed": True,
             "action": {"tool": name, "kind": context["kind"], "data": result.data},

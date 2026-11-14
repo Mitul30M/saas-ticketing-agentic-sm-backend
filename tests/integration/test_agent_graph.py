@@ -772,3 +772,165 @@ def test_unknown_ticket_id_escalates_without_crash(
     ).fetchall()
     assert trace_rows, "even a missing ticket leaves an audit trail"
     assert_no_side_effects(migrated_conn, missing)
+
+
+def test_fully_refunded_invoice_reports_a_business_rule_not_a_validation_error(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    """"Refund the full amount" on an already-refunded invoice derives 0 cents.
+
+    `amount_cents` is a PositiveInt, so before the guard this failed as
+    `invalid_input: amount_cents: Input should be greater than 0` — a validation
+    error surfaced to the operator for what is really a policy refusal. It must
+    escalate on `business_rule`, the draft must be amended, and no proposal may
+    be created.
+    """
+    t = two_customers
+    migrated_conn.execute(
+        "UPDATE payments SET amount_refunded_cents = amount_cents WHERE invoice_id = %s",
+        (t.inv_a,),
+    )
+    migrated_conn.execute("UPDATE invoices SET status = 'refunded' WHERE id = %s", (t.inv_a,))
+
+    ticket = _mk_ticket(
+        migrated_conn, t.alice_id, "ITST fully refunded",
+        f"Please refund the full amount of invoice {t.inv_a}.",
+    )
+    graph = _scripted_graph(db_pool, "refund_request")
+    try:
+        result = _invoke(graph, ticket)
+
+        assert result["outcome"] == "escalated"
+        assert result["escalation"]["reason_code"] == "business_rule"
+        assert "nothing left to refund" in result["escalation"]["detail"]
+
+        draft = migrated_conn.execute(
+            "SELECT draft_reply FROM tickets WHERE id = %s", (ticket,)
+        ).fetchone()["draft_reply"]
+        assert draft and "support specialist will review" in draft
+
+        assert migrated_conn.execute(
+            "SELECT id FROM refund_requests WHERE ticket_id = %s", (ticket,)
+        ).fetchone() is None
+
+        decision = migrated_conn.execute(
+            "SELECT output FROM trace_events WHERE ticket_id = %s "
+            "AND node = 'propose_refund' AND kind = 'decision'",
+            (ticket,),
+        ).fetchone()
+        assert decision is not None
+        assert "nothing left to refund" in decision["output"]["error"]["message"]
+    finally:
+        graph._test_saver.conn.close()  # type: ignore[attr-defined]
+
+
+def test_reply_ticket_naming_an_invoice_reads_it_before_answering(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    """"Your system says it failed, but I see a charge" is a fact question.
+
+    The reply branch must read the invoice first, or the draft can only recite
+    policy. The record then travels into grounding/draft as verified data.
+    """
+    class _RecordingLLM(ScriptedLLM):
+        """Captures the prompt so the test can prove the record reached the model."""
+
+        def __init__(self) -> None:
+            super().__init__(category="invoice_question")
+            self.prompts: list[str] = []
+
+        def generate(self, messages: Any, schema: Any = None, **kwargs: Any) -> Any:
+            if schema is not None and schema.__name__ == "DraftOutput":
+                self.prompts.append("\n".join(str(m.get("content")) for m in messages))
+            return super().generate(messages, schema, **kwargs)
+
+    t = two_customers
+    ticket = _mk_ticket(
+        migrated_conn, t.alice_id, "ITST invoice question",
+        f"Your system says the payment for {t.inv_a} failed, but I see a charge "
+        "on my statement.",
+    )
+    client = _RecordingLLM()
+    saver = make_checkpointer(settings.database_url)
+    graph = build_graph(db_pool, client=client, checkpointer=saver)
+    try:
+        result = _invoke(graph, ticket)
+    finally:
+        saver.conn.close()  # type: ignore[union-attr]
+
+    assert client.prompts, "the draft prompt was never sent"
+    assert "<<<ACCOUNT_RECORD" in client.prompts[-1]
+    assert f"invoice {t.inv_a}" in client.prompts[-1]
+
+    assert result.get("account_record", {}).get("invoice_id") == t.inv_a, {
+        "plan": result.get("plan"),
+        "escalation": result.get("escalation"),
+        "action_context": result.get("action_context"),
+        "tools": [
+            row["node"]
+            for row in migrated_conn.execute(
+                "SELECT node FROM trace_events WHERE ticket_id=%s AND kind='tool' ORDER BY id",
+                (ticket,),
+            ).fetchall()
+        ],
+    }
+    tools = [
+        row["node"]
+        for row in migrated_conn.execute(
+            "SELECT node FROM trace_events WHERE ticket_id = %s AND kind = 'tool' ORDER BY id",
+            (ticket,),
+        ).fetchall()
+    ]
+    assert "lookup_customer" in tools
+    assert "get_invoice" in tools
+    assert not result.get("escalation")
+    assert migrated_conn.execute(
+        "SELECT draft_reply FROM tickets WHERE id = %s", (ticket,)
+    ).fetchone()["draft_reply"]
+
+
+def test_reply_ticket_naming_someone_elses_invoice_escalates(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    """Reading the record must not become a way to disclose another customer's
+    invoice: ownership fails closed before any drafting."""
+    t = two_customers
+    ticket = _mk_ticket(
+        migrated_conn, t.alice_id, "ITST foreign invoice",
+        f"Can you explain the charge on {t.inv_b}? It looks wrong to me.",
+    )
+    graph = _scripted_graph(db_pool, "invoice_question")
+    try:
+        result = _invoke(graph, ticket)
+    finally:
+        graph._test_saver.conn.close()  # type: ignore[attr-defined]
+
+    assert result["outcome"] == "escalated"
+    assert result["escalation"]["reason_code"] == "ownership_mismatch"
+    assert not result.get("draft")
+    assert not result.get("account_record")
+
+
+def test_support_check_accepts_a_claim_backed_by_the_account_record(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    """`kb_id: "record"` is valid evidence only while a record is in state."""
+    t = two_customers
+    ticket = _mk_ticket(
+        migrated_conn, t.alice_id, "ITST record claim",
+        f"Is there a charge recorded for {t.inv_a}?",
+    )
+    saver = make_checkpointer(settings.database_url)
+    client = ScriptedLLM(
+        category="invoice_question",
+        support={"claims": [{"claim": "A succeeded payment exists.", "kb_id": "record"}]},
+    )
+    graph = build_graph(db_pool, client=client, checkpointer=saver)
+    try:
+        result = _invoke(graph, ticket)
+    finally:
+        saver.conn.close()  # type: ignore[union-attr]
+
+    assert result["grounding"]["supported"] is True
+    assert result["grounding"]["claims"][0]["kb_id"] == "record"
+    assert result.get("draft")

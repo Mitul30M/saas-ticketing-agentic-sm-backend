@@ -18,12 +18,13 @@ from pydantic import BaseModel, Field
 
 from app.agent.nodes.common import escalation_update, next_step, step_guard, trace_node
 from app.agent.nodes.triage import BODY_CLOSE, BODY_OPEN, SUBJECT_CLOSE, SUBJECT_OPEN
+from app.agent.record import RECORD_EVIDENCE_ID, render_account_record
 from app.agent.resilience import call_llm
 from app.agent.state import AgentState
 from app.config import settings
 from app.llm.base import LLMClient
 
-PROMPT_VERSION = "support_v4"
+PROMPT_VERSION = "support_v5"
 
 # COVERAGE.md marks these categories as deliberately uncovered ("escalate"). The
 # support check is an LLM and may still say yes to a neighbouring article — the
@@ -92,7 +93,10 @@ def _system_prompt(version: str = PROMPT_VERSION) -> str:
     return prompt
 
 
-def _user_content(subject: str, body: str, chunks: list[dict[str, Any]]) -> str:
+def _user_content(
+    subject: str, body: str, chunks: list[dict[str, Any]],
+    record: dict[str, Any] | None = None,
+) -> str:
     parts = [
         f"{SUBJECT_OPEN}\n{subject}\n{SUBJECT_CLOSE}",
         f"{BODY_OPEN}\n{body}\n{BODY_CLOSE}",
@@ -104,6 +108,8 @@ def _user_content(subject: str, body: str, chunks: list[dict[str, Any]]) -> str:
             f"title={chunk['title']}\n{chunk['text']}"
         )
     parts.append("RETRIEVED_CHUNKS>>>")
+    if record:
+        parts.append(render_account_record(record))
     return "\n\n".join(parts)
 
 
@@ -147,9 +153,12 @@ def make_grounding_node(pool: Any, client: LLMClient):
             }
 
         # Gate 2: LLM support check with claim->kb_id mapping, validated in code.
+        record = state.get("account_record")
         messages = [
             {"role": "system", "content": _system_prompt()},
-            {"role": "user", "content": _user_content(state["subject"], state["body"], chunks)},
+            {"role": "user", "content": _user_content(
+                state["subject"], state["body"], chunks, record
+            )},
         ]
         response = call_llm(
             lambda: client.generate(messages, schema=SupportCheckOutput),
@@ -160,14 +169,17 @@ def make_grounding_node(pool: Any, client: LLMClient):
             raise TypeError("support check produced no structured output")
 
         retrieved_ids = {str(chunk["kb_id"]) for chunk in chunks}
+        # A claim may rest on the verified account record as well as a chunk.
+        valid_ids = retrieved_ids | ({RECORD_EVIDENCE_ID} if record else set())
         supported_claims = [
-            claim for claim in verdict.claims if str(claim.kb_id) in retrieved_ids
+            claim for claim in verdict.claims if str(claim.kb_id) in valid_ids
         ]
         unsupported = len(verdict.claims) - len(supported_claims)
         supported = verdict.supported and unsupported == 0 and bool(supported_claims)
         trace_node(
             pool, ticket_id, trace_id, "grounding_check", "llm",
-            {"prompt_version": PROMPT_VERSION, "best_rrf_score": best_score},
+            {"prompt_version": PROMPT_VERSION, "best_rrf_score": best_score,
+             "account_record": bool(record)},
             {"supported": supported, "conflicting": verdict.conflicting,
              "reason": verdict.reason, "unsupported_claims": unsupported},
             duration_ms=response.usage.latency_ms,

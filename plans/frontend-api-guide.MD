@@ -515,6 +515,11 @@ just empty).
 **Frontend notes:** group by `trace_id` (one run per re-run), then render in order. This is the
 "what did the agent do" timeline; it is also where a `timeout` / `STEP_LIMIT` story shows up.
 
+Since F17, a **reply** ticket that names an invoice also calls `lookup_customer` and `get_invoice`
+before `kb_search`, so the timeline may start with three tool rows. The draft can then state verified
+account facts (invoice status, amounts, payment statuses/dates) without a `[KB-xxx]` marker next to
+them. Nothing in the response shape changed.
+
 ---
 
 ### 4.6 `POST /api/tickets/{ticket_id}/run` — explicit re-run

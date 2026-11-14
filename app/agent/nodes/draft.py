@@ -14,11 +14,12 @@ from pydantic import BaseModel, Field
 
 from app.agent.nodes.common import escalation_update, next_step, step_guard, trace_node
 from app.agent.nodes.triage import BODY_CLOSE, BODY_OPEN, SUBJECT_CLOSE, SUBJECT_OPEN
+from app.agent.record import render_account_record
 from app.agent.resilience import call_llm
 from app.agent.state import AgentState
 from app.llm.base import LLMClient
 
-PROMPT_VERSION = "draft_v4"
+PROMPT_VERSION = "draft_v6"
 _PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / f"{PROMPT_VERSION}.txt"
 
 CITATION_RE = re.compile(r"\[(KB-[A-Za-z0-9_-]+)\]")
@@ -70,12 +71,17 @@ def _system_prompt(version: str = PROMPT_VERSION) -> str:
     return prompt
 
 
-def _user_content(subject: str, body: str, chunks: list[dict[str, Any]]) -> str:
+def _user_content(
+    subject: str, body: str, chunks: list[dict[str, Any]],
+    record: dict[str, Any] | None = None,
+) -> str:
     parts = [
         f"{SUBJECT_OPEN}\n{subject}\n{SUBJECT_CLOSE}",
         f"{BODY_OPEN}\n{body}\n{BODY_CLOSE}",
-        "<<<RETRIEVED_CHUNKS",
     ]
+    if record:
+        parts.append(render_account_record(record))
+    parts.append("<<<RETRIEVED_CHUNKS")
     for index, chunk in enumerate(chunks, start=1):
         parts.append(
             f"[{index}] kb_id={chunk['kb_id']} chunk={chunk['chunk_idx']} "
@@ -109,7 +115,9 @@ def make_draft_node(pool: Any, client: LLMClient):
         chunks = state.get("retrieved") or []
         messages = [
             {"role": "system", "content": _system_prompt()},
-            {"role": "user", "content": _user_content(state["subject"], state["body"], chunks)},
+            {"role": "user", "content": _user_content(
+                state["subject"], state["body"], chunks, state.get("account_record")
+            )},
         ]
         response = call_llm(
             lambda: client.generate(messages, schema=DraftOutput),
