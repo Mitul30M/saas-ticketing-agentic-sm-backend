@@ -23,6 +23,7 @@ class AgentState(TypedDict, total=False):
     action_context: dict[str, Any]
     retrieved: list[dict[str, Any]]  # RetrievedChunk.to_dict() list
     account_record: dict[str, Any]  # whitelisted invoice/plan facts for the reply pipeline
+    customer_record: dict[str, Any]  # whitelisted account status, used only for escalation detail
     grounding: dict[str, Any]  # {supported, reason_code, score, claims}
 
     draft: str | None

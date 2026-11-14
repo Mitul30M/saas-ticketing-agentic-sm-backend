@@ -607,3 +607,13 @@ Format: 3–5 lines per decision. Newest at the bottom.
   flag and the operator banner. Identity resolution still comes from `ticket.from_email`; the flag
   can only tighten attention, never change lookup or permissions.
 - Both are observability fixes: the E-006 decision (escalate/ambiguity) was already correct.
+
+### 2026-11-14 · F22: read the account status, but keep the escalation
+- Account questions (`login_account_access`) now call `lookup_customer` even without an invoice, so
+  the agent can see the sender's verified status. The status is whitelisted to `status` only and is
+  used exclusively to explain a `LOW_CONFIDENCE` escalation.
+- Deliberately **not** passed to the support check or draft: a suspended customer still needs a
+  human, and no account-state change is allowed. This keeps the E-007 outcome (`escalate` /
+  `not_in_kb`) intact while making the reason actionable.
+- Cost: an extra cheap tool call on account tickets. Eval gold `expected_tools` changed for
+  `E-007` and `E-023`–`E-026`; the next capture measures the wider plan.

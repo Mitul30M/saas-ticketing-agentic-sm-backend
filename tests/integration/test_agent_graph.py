@@ -1059,3 +1059,51 @@ def test_out_of_window_refund_draft_does_not_announce_a_proposal(
     assert migrated_conn.execute(
         "SELECT id FROM refund_requests WHERE ticket_id = %s", (ticket,)
     ).fetchone() is None
+
+
+def test_account_question_reads_the_status_and_escalates_with_it(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    """An account question reads the sender's status, but the status is only
+    escalation context: no answer, no draft, no account-state change."""
+    t = two_customers
+    migrated_conn.execute(
+        "UPDATE customers SET status = 'suspended' WHERE id = %s", (t.alice_id,)
+    )
+    ticket = _mk_ticket(
+        migrated_conn, t.alice_id, "ITST is my account suspended",
+        "It seems I cannot use the services anymore. Is my account suspended?",
+    )
+    client = ScriptedLLM(
+        category="login_account_access",
+        support={
+            "supported": False,
+            "claims": [],
+            "reason": "No retrieved chunks address account suspension status.",
+        },
+    )
+    saver = make_checkpointer(settings.database_url)
+    graph = build_graph(db_pool, client=client, checkpointer=saver)
+    try:
+        result = _invoke(graph, ticket)
+    finally:
+        saver.conn.close()  # type: ignore[union-attr]
+
+    assert result["customer_record"] == {"record_type": "customer", "status": "suspended"}
+    assert result["outcome"] == "escalated"
+    assert result["escalation"]["reason_code"] == "LOW_CONFIDENCE"
+    assert "customer account status: suspended" in result["escalation"]["detail"]
+    assert result.get("draft") is None
+
+    tools = [
+        row["node"]
+        for row in migrated_conn.execute(
+            "SELECT node FROM trace_events WHERE ticket_id = %s AND kind = 'tool' ORDER BY id",
+            (ticket,),
+        ).fetchall()
+    ]
+    assert "lookup_customer" in tools
+    assert "escalate_to_human" in tools
+    assert migrated_conn.execute(
+        "SELECT id FROM refund_requests WHERE ticket_id = %s", (ticket,)
+    ).fetchone() is None

@@ -93,6 +93,18 @@ def _system_prompt(version: str = PROMPT_VERSION) -> str:
     return prompt
 
 
+def _with_customer_status(state: AgentState, detail: str) -> str:
+    """Append the verified account status to an escalation reason.
+
+    The status is context for the human, never evidence for an answer: it is
+    deliberately not passed to the support check or the draft.
+    """
+    status = (state.get("customer_record") or {}).get("status")
+    if not status:
+        return detail
+    return f"{detail} (customer account status: {status})"
+
+
 def _user_content(
     subject: str, body: str, chunks: list[dict[str, Any]],
     record: dict[str, Any] | None = None,
@@ -146,8 +158,11 @@ def make_grounding_node(pool: Any, client: LLMClient):
             return {
                 **escalation_update(
                     "LOW_CONFIDENCE",
-                    f"best retrieval score {best_score:.4f} below threshold "
-                    f"{settings.grounding_threshold:.4f}",
+                    _with_customer_status(
+                        state,
+                        f"best retrieval score {best_score:.4f} below threshold "
+                        f"{settings.grounding_threshold:.4f}",
+                    ),
                 ),
                 "step_count": next_step(state),
             }
@@ -212,7 +227,11 @@ def make_grounding_node(pool: Any, client: LLMClient):
         if not supported:
             return {
                 **escalation_update(
-                    "LOW_CONFIDENCE", verdict.reason or "retrieved chunks do not answer the ticket"
+                    "LOW_CONFIDENCE",
+                    _with_customer_status(
+                        state,
+                        verdict.reason or "retrieved chunks do not answer the ticket",
+                    ),
                 ),
                 "step_count": next_step(state),
             }

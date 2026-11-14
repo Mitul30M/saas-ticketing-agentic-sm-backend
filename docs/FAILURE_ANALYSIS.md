@@ -538,6 +538,40 @@ identical to the clean control); live rerun of `cca2fcb9`.
 
 ---
 
+## F22 — An account-status question escalated without reading the status (fixed)
+
+**Symptom:** newly submitted ticket `bdcc91a9-64ee-448c-8c65-14d043b6d2a8` ("Is my account
+suspended?") came from a customer whose record says `status=suspended`. The agent escalated
+`LOW_CONFIDENCE` after retrieval, with no mention of the account status. The human had to open the
+customers table to learn what the customer was asking about.
+
+**Root cause:** the reply branch called `lookup_customer` only when the ticket named an invoice
+(F17/F18). Account tickets have no invoice, so the status returned by `lookup_customer` was never
+read. The agent correctly refused to answer (no suspension runbook, no account-state tool), but the
+escalation was unnecessarily blind.
+
+**Fix:**
+- Reply tickets categorised `login_account_access` now call `lookup_customer` before retrieval, the
+  same way invoice questions do. A lookup failure escalates with the tool's code (identity is not
+  guessed).
+- The result is projected into a whitelisted `customer_record` containing **only** `status`
+  (`build_customer_record`). It is **not** passed to the support check or the draft, so the outcome
+  is still an escalation and no account-state change is possible.
+- `grounding_check` appends `(customer account status: <status>)` to its `LOW_CONFIDENCE` detail on
+  both the score gate and the support gate. The trace API exposes that reason (F20), so the console
+  now says *"No retrieved chunks address account suspension status. (customer account status:
+  suspended)"*.
+- Eval gold updated for the account rows: `E-007` now expects
+  `lookup_customer → kb_search → escalate_to_human`, and `E-023`–`E-026` expect
+  `lookup_customer → kb_search`. Outcomes are unchanged.
+
+**Evidence:** `tests/unit/test_account_record.py::test_customer_record_keeps_only_the_account_status`,
+`tests/integration/test_agent_graph.py::test_account_question_reads_the_status_and_escalates_with_it`.
+Live rerun of `bdcc91a9` shows `lookup_customer` in the trace and the status in the escalation
+detail, with no draft.
+
+---
+
 ## Method notes
 
 - Every finding above is reproducible: `make eval-stub` for the harness, `make eval-ablation` for

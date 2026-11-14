@@ -57,6 +57,19 @@ def build_account_record(
     return record
 
 
+def build_customer_record(customer: dict[str, Any]) -> dict[str, Any]:
+    """Whitelist the account-status fields used to explain an escalation.
+
+    This record is *not* passed to grounding or draft. It exists so an account
+    question that the KB cannot answer still says what the verified account
+    status is; the decision stays an escalation (no account-state change).
+    """
+    return {
+        "record_type": "customer",
+        "status": customer.get("status"),
+    }
+
+
 def build_plan_record(
     subscription: dict[str, Any], current_plan_id: str | None, target_plan_id: str
 ) -> dict[str, Any]:

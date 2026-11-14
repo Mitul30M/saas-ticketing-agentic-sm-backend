@@ -7,7 +7,11 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from app.agent.nodes.common import trace_node
-from app.agent.record import build_account_record, build_plan_record
+from app.agent.record import (
+    build_account_record,
+    build_customer_record,
+    build_plan_record,
+)
 from app.agent.state import AgentState
 from app.config import settings
 from app.tools.registry import ToolRegistry
@@ -30,6 +34,10 @@ PLAN_IDS = {
     "pro": "PLAN-PRO",
     "business": "PLAN-BUSINESS",
 }
+# Account questions should read the sender's account record before answering.
+# The status is only used to explain an escalation; it never authorizes an
+# account-state change and is not passed to grounding/draft.
+ACCOUNT_READ_CATEGORIES = {"login_account_access"}
 
 
 def parse_amount_cents(text: str) -> int:
@@ -131,11 +139,14 @@ def make_tool_executor_node(registry: ToolRegistry):
         invoice_match = INVOICE_RE.search(text)
 
         if action not in {"refund", "plan_change"}:
-            if invoice_match is None:
+            category = str((state.get("triage") or {}).get("category") or "")
+            if invoice_match is None and category not in ACCOUNT_READ_CATEGORIES:
                 return {"action_context": {"kind": "reply"}}
             # "Your system says the payment failed, but I see a charge" is a
-            # question about one invoice, not about policy. Read the record
-            # before answering; a foreign invoice escalates instead.
+            # question about one invoice, not about policy. An account question
+            # ("is my account suspended?") is about one customer's status.
+            # Read the record before answering; a foreign invoice or an
+            # unresolvable sender escalates instead.
             customer = registry.call(
                 "lookup_customer", {"ticket_id": ticket_id},
                 ticket_id=ticket_id, ctx=context,
@@ -147,8 +158,17 @@ def make_tool_executor_node(registry: ToolRegistry):
                         "reason_code": (
                             customer.error.code.value if customer.error else "TOOL_FAILURE"
                         ),
-                        "detail": "customer lookup failed before reading the invoice",
+                        "detail": (
+                            "customer lookup failed before reading the invoice"
+                            if invoice_match is not None
+                            else "customer lookup failed before reading the account status"
+                        ),
                     },
+                }
+            if invoice_match is None:
+                return {
+                    "action_context": {"kind": "reply"},
+                    "customer_record": build_customer_record(customer.data or {}),
                 }
             invoice = registry.call(
                 "get_invoice",

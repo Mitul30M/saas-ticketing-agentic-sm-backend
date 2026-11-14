@@ -10,6 +10,7 @@ from app.agent.record import (
     RECORD_CLOSE,
     RECORD_OPEN,
     build_account_record,
+    build_customer_record,
     build_plan_record,
     render_account_record,
 )
@@ -100,3 +101,15 @@ def test_plan_record_keeps_current_and_target_plan() -> None:
     assert "current_plan=PLAN-PRO" in text
     assert "target_plan=PLAN-STARTER" in text
     assert "secret-uuid" not in text
+
+
+def test_customer_record_keeps_only_the_account_status() -> None:
+    """The status record is for escalation context only; ids and PII stay out."""
+    record = build_customer_record({
+        "customer_id": "leak-me",
+        "email": "leak@example.test",
+        "first_name": "Leak",
+        "last_name": "Me",
+        "status": "suspended",
+    })
+    assert record == {"record_type": "customer", "status": "suspended"}
