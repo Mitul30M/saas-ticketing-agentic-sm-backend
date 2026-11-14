@@ -94,7 +94,7 @@ its config changed, which is why the flags are on the `up`, not on a later `rest
 
 ### What "ground up" actually needs
 
-`docker compose down -v` wipes `pgdata` (and `hf_cache`). Then:
+`docker compose --profile web down -v` wipes `pgdata` (and `hf_cache`). Then:
 
 ```bash
 AGENT_TOKEN=demo-token docker compose --profile web up -d --build
@@ -148,7 +148,7 @@ wait_for() {
 ```
 
 > **First run vs re-run — read this first.**
-> - For the outputs documented here, start from a clean DB (`docker compose down -v` → §1) and run
+> - For the outputs documented here, start from a clean DB (`docker compose --profile web down -v` → §1) and run
 >   each section **once**. Idempotency keys live **24 hours**: repeating a request with a
 >   hard-coded key replays the stored response instead of doing the work again. Every mutating
 >   example below therefore uses `$RANDOM`/`uuidgen`; if you paste an old command with a fixed key,
@@ -272,8 +272,8 @@ make seed
 make ingest-kb
 
 # Clean slate: DELETE the compose DB volume, then up + migrate + seed + ingest again.
-docker compose down -v
-AGENT_TOKEN=demo-token docker compose up -d --build
+docker compose --profile web down -v
+AGENT_TOKEN=demo-token docker compose --profile web up -d --build
 make seed && make ingest-kb
 ```
 
@@ -1006,8 +1006,8 @@ curl -sS -H "$AUTH" $API/api/customers/$CUSTOMER | python3 -m json.tool
 docker compose stop
 
 # Full reset: wipe the DB volume and the embedding cache, re-seed.
-docker compose down -v
-AGENT_TOKEN=demo-token docker compose up -d --build
+docker compose --profile web down -v
+AGENT_TOKEN=demo-token docker compose --profile web up -d --build
 make seed && make ingest-kb
 
 # Remove walkthrough rows from THIS DB without wiping the seed.
@@ -1038,7 +1038,7 @@ SQL
 | Symptom | Cause / fix |
 |---|---|
 | `integration` tests "pass" instantly with 0 items | DB not reachable; start `docker compose up -d db` or set `TEST_DATABASE_URL`. |
-| `make seed` assertion `101` fails | Extra customers exist (tests/walkthrough rows). Use `docker compose down -v` for a clean seed. |
+| `make seed` assertion `101` fails | Extra customers exist (tests/walkthrough rows). Use `docker compose --profile web down -v` for a clean seed. |
 | `zsh: command not found: psql -h localhost -p 5433 …` | You set `PSQL="psql -h …"`; zsh does not word-split unquoted variables. Re-source the shared block at the top (it defines a `psql()` function and `PSQL=psql`), or run `setopt shwordsplit`. |
 | `json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)` right after a `curl … \| tee /tmp/x.json` | The file is empty, so curl never got a response: almost always `$API` is unset (new terminal — re-source the shared block) and curl reported `URL rejected`, which plain `-s` hid. Check `echo $API`. Every snippet now uses `-sS`, so the curl error is visible. |
 | CLI run stops instantly with `BAD_TICKET` / "missing body text or a transport sender" | You picked the seeded unknown-sender ticket. Use `WHERE from_email IS NOT NULL` (§3). Correct fail-closed behaviour: the trace has only `escalate_to_human` + `finalize`, zero LLM tokens. |
@@ -1057,6 +1057,7 @@ SQL
 | §6.9 proposes "customer is already on the target plan" | A previous run moved that customer to PLAN-PRO; pick another starter customer or reset. |
 | Tests hang after adding cases | The compose worker is stealing test jobs; `docker compose stop worker` before `make test-all`. |
 | `psql: connection refused` | Use the host port `5433` (compose maps `5433:5432`). |
+| `web` missing from OrbStack / `failed to set up container networking: network … not found` | A plain `docker compose down` is **profile-aware**: it removes db/api/worker and the network but leaves the profiled `web` container bound to the deleted network. The next `up` then tries to *start* that stale container. Fix: `docker compose --profile web down` (or `up -d --force-recreate web`), and always put `--profile web` on `down`/`down -v` once the console has run. |
 | Groq returns `429 ... tokens per day (TPD)` | The free tier is 200k tokens/day **per model**; one full eval is ~127k, and failed retries spend the same budget. Wait for the reset, or run the eval on another model (each model has its own budget) — the report always names the model it used. |
 | Groq returns `429 ... tokens per minute (TPM)` | 8k tokens/minute. Submit fewer tickets at once; for eval use `make eval-live` (paces at 6k/min). Pacing cannot help once the daily budget is gone. |
 | Drafts look canned and `trace_events` shows `tokens_in=0` | You are on the stub. Set `LLM_PROVIDER=groq` and recreate `api`/`worker` (§0.1); compose does not pick up `.env` changes without a recreate. |
@@ -1191,7 +1192,7 @@ $ docker compose stop worker && uv run pytest tests/unit tests/integration tests
 
 ## Appendix A. Recorded transcript (2026-11-13, clean volume)
 
-Raw output from a stack built after `docker compose down` + deleting the `hf_cache` volume, i.e. the
+Raw output from a stack built after `docker compose --profile web down` + deleting the `hf_cache` volume, i.e. the
 "reviewer clones the repo" path. Nothing below is edited except line wrapping.
 
 Cold start — the model is baked into the image and preloaded before serving:

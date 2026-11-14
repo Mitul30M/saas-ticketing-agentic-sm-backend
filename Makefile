@@ -12,8 +12,11 @@ up-web:
 	@echo "Console: http://localhost:3000   API: http://localhost:8000"
 	@echo "First run? make migrate seed ingest-kb (then reload the console)."
 
+# `--profile web` matters: without it the profiled `web` container survives a
+# `down`, keeps a reference to the removed network, and the next `up` fails with
+# "failed to set up container networking: network ... not found".
 down:
-	docker compose down
+	docker compose --profile web down
 
 app-local:
 	uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
