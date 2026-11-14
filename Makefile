@@ -48,7 +48,8 @@ eval:
 eval-live:
 	@echo "eval-live: fresh real-model run; rewrites eval/replay_cache.json"
 	@echo "  paced at 6000 tokens/min: free tiers limit at 8000/min and 200k/day"
-	uv run python -m eval.run_eval --llm groq --concurrency 3 --tpm 6000 --write-replay
+	uv run python -m eval.run_eval --llm groq --concurrency 3 --tpm 6000 \
+		--timeout 3600 --write-replay
 	uv run python -m eval.report
 
 eval-stub:

@@ -154,9 +154,18 @@ tool" asks (ClickUp, integration features, discounts), where the dev `kb_covered
 arguably optimistic — so the measured recall understates it.
 
 Effect on the capture (`openai/gpt-oss-120b`): answer rows that produced a draft went from
-**4/19 to 15/19** (0.79), and **15/15 of those drafts were fully grounded**. Four answer rows
-still over-escalate: E-008 (past-due balance), E-031 (Redis API how-to), E-032 (invoicing via
-integrations), E-041 (refund policy question).
+**4/19 to 15/19** (0.79), and **15/15 of those drafts were fully grounded**.
+
+**Residual after `support_v5` (capture `20261114-0852-groq`):** four answer rows still over-escalate
+(`E-008`, `E-031`, `E-032`, `E-041`). `E-008` is now diagnosed exactly, and it is **not** the support
+prompt: the customer says "past due notice" and "flagged", and **no KB article contains either
+phrase** (`grep -rln "past due\|flagged" data/kb/*.md` → no matches). Retrieval returned
+`KB-015/020/016/001/019`; `KB-002` (due dates/open balances) and `KB-003` (failed/pending payments)
+never appeared, so the support check correctly answered `supported=false`.
+Fix (not applied to the published capture, because editing the KB invalidates the replay): add the
+customer's vocabulary to `KB-002`/`KB-003` — "past due notice", "account flagged", "access may be
+limited until the balance is settled", and a line connecting a failed payment to retrying/updating
+the method — then re-ingest and recapture.
 **Why it is quoted as a failure, not hidden:** a 21% grounded-reply rate is the honest number for
 this run. The safety side is unaffected — 0 false answers and 0 unapproved executions.
 
