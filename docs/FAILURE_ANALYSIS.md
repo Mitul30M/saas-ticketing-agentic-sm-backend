@@ -441,6 +441,56 @@ KB-002/003 vocabulary fix (F7) should ship together in the next capture.
 
 ---
 
+## F19 — "The refund request will be reviewed" was treated as a promise (fixed)
+
+**Symptom:** seeded ticket `5973c116-8d08-5f5f-9691-9134f49c6fa7` ("Requesting a refund for a
+charge from months ago", eval row `E-015`) ended `DRAFT_REJECTED` instead of the expected
+`business_rule`. The trace shows the draft decision, then straight to `escalate_to_human`:
+
+```
+draft_reply (decision)  {"accepted": false, "reason_code": "DRAFT_PROMISE_DENIED"}
+escalate_to_human       {"reason_code": "DRAFT_REJECTED"}
+```
+
+No `propose_refund` call, so the 60-day window was never evaluated.
+
+**Root cause (two layers):**
+1. The promise deny-list's first pattern was `refund … (has been|will be|is being)`. It was written
+   for "the refund will be processed", but it also matched the draft's **"The refund request is
+   currently pending approval and will be reviewed by our team"** — a review, not an execution.
+   Re-running the same ticket after the first fix surfaced a second false positive: the model wrote
+   **"no refund has been issued"**, and the pattern matched the negated phrase.
+2. The F18 record also made the model announce "a refund of $20.00 is currently requested for
+   approval" for a payment the tool would refuse. The draft runs before `propose_refund`, so it
+   could not know the window check would fail; the persisted draft then contradicted the refusal
+   sentence appended after it.
+
+**Fix:**
+- The deny-list pattern now requires an execution verb after the auxiliary
+  (`processed|issued|approved|paid|credited|returned|completed|sent|made|deposited|refunded|on its
+  way`). "…will be reviewed" passes; "…will be processed" still fails.
+- The passive pattern ignores a negated noun phrase immediately before the match ("no refund has
+  been issued", "no partial refund has been issued"). The guard is deliberately narrow: a negation
+  earlier in the sentence does not excuse a later claim, so "no doubt your refund will be
+  processed" is still rejected.
+- `refund_proposal_is_eligible()` mirrors `propose_refund`'s deterministic preconditions (successful
+  payment, invoice status, amount ≤ paid − refunded, 30-day window) as a **presentation hint only**.
+  When it says no — including any parse doubt — the record omits `requested_refund_cents`, so the
+  draft states the invoice and the policy but does not announce a proposal. Enforcement remains in
+  the tool, server-side.
+- `draft_v7` now says "proposed for approval", explicitly not "already pending in the system".
+
+**Evidence:** `tests/unit/test_promise_denylist.py` (both false-positive sentences, the negated
+forms, and the execution phrasings that must still be rejected),
+`tests/unit/test_action_parsers.py::test_refund_eligibility_mirrors_the_tool_preconditions`,
+`tests/integration/test_agent_graph.py::test_out_of_window_refund_draft_does_not_announce_a_proposal`.
+Re-running the original ticket (`5973c116`) now ends `business_rule`: the draft is accepted
+(KB-006/KB-008), `propose_refund` refuses with "invoice is outside the 30-day refund window", 0
+refund rows exist, and the draft carries F16's refusal sentence. The same flow was confirmed on a
+fresh submission (`3c57ec04`). 369 tests pass.
+
+---
+
 ## Method notes
 
 - Every finding above is reproducible: `make eval-stub` for the harness, `make eval-ablation` for

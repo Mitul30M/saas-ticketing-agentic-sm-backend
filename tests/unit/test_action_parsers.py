@@ -7,9 +7,16 @@ directional from/to reading where only the two named plans appear."""
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
-from app.agent.nodes.orchestration import parse_amount_cents, parse_target_plan
+from app.agent.nodes.orchestration import (
+    parse_amount_cents,
+    parse_target_plan,
+    refund_proposal_is_eligible,
+)
+from app.config import settings
 
 
 @pytest.mark.parametrize(
@@ -107,3 +114,36 @@ def test_current_plan_supplies_the_missing_from(text: str, current: str, expecte
 def test_current_plan_does_not_resolve_genuine_ambiguity(text: str, current: str) -> None:
     with pytest.raises(ValueError):
         parse_target_plan(text, current_plan_id=current)
+
+
+def _invoice(
+    paid_at: str, *, amount: int = 2000, refunded: int = 0, status: str = "paid"
+) -> dict:
+    return {
+        "invoice_id": "INV-TEST",
+        "status": status,
+        "amount_cents": amount,
+        "payments": [{
+            "status": "succeeded",
+            "amount_cents": amount,
+            "amount_refunded_cents": refunded,
+            "paid_at": paid_at,
+        }],
+    }
+
+
+def test_refund_eligibility_mirrors_the_tool_preconditions() -> None:
+    """F19: the draft only announces a proposal the tool will accept.
+
+    This is a presentation hint; `propose_refund` still enforces every rule.
+    """
+    recent = (settings.as_of - timedelta(days=5)).isoformat()
+    old = (settings.as_of - timedelta(days=60)).isoformat()
+
+    assert refund_proposal_is_eligible(_invoice(recent), 2000) is True
+    assert refund_proposal_is_eligible(_invoice(old), 2000) is False
+    assert refund_proposal_is_eligible(_invoice(recent, refunded=1500), 1000) is False
+    assert refund_proposal_is_eligible(_invoice(recent, refunded=1500), 500) is True
+    assert refund_proposal_is_eligible(_invoice(recent, status="open"), 2000) is False
+    assert refund_proposal_is_eligible(_invoice(recent), 0) is False
+    assert refund_proposal_is_eligible({"status": "paid", "payments": []}, 2000) is False

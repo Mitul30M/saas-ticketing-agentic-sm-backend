@@ -580,3 +580,21 @@ Format: 3–5 lines per decision. Newest at the bottom.
 - Cost: `draft_v7` / `support_v6` change prompt hashes, so the frozen replay cache no longer matches
   HEAD. The published capture stays reproducible at tag `eval-freeze` (`599af3b`) until the next
   real-model run.
+
+### 2026-11-14 · F19: a review is not an execution claim
+- The deny-list's `refund … will be` pattern rejected a safe sentence ("the refund request … will
+  be reviewed") and turned E-015 into `DRAFT_REJECTED` before the 30-day rule could run. The
+  pattern now requires an execution verb after the auxiliary; "will be reviewed" passes,
+  "will be processed/issued/paid" still fails.
+- The same pattern also rejected a denial ("no refund has been issued"). The passive pattern now
+  skips an immediately negated noun phrase ("no [word] refund …"). The lookback is deliberately
+  narrow: a negation earlier in the sentence does not excuse a later claim, so "no doubt your refund
+  will be processed" is still rejected.
+- F18's record also let the draft announce a proposal the tool would refuse. Rather than reorder
+  draft after `propose_actions` (a rejected draft would leave an orphan pending request), the
+  refund branch asks `refund_proposal_is_eligible()` — a mirror of the tool's deterministic
+  preconditions — whether to include `requested_refund_cents`. This is a presentation hint, not a
+  control: `propose_refund` still enforces the window/balance server-side, and any doubt omits the
+  claim so the draft stays quiet.
+- `draft_v7` says "proposed for approval", not "pending in the system". The refusal sentence is
+  still the final word when the tool rejects the action.

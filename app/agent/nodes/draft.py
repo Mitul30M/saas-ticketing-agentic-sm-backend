@@ -33,7 +33,15 @@ MAX_REPLY_CHARS = 4000
 # them. Defense in depth, NOT the control: the human approval gate is the
 # control (docs/DECISIONS.md).
 PROMISE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"refund\b[^.?!]*\b(has been|will be|is being)\b", re.IGNORECASE),
+    # "refund will be processed/issued/…". The execution verb is required:
+    # the earlier `refund … (has been|will be|is being)` matched "the refund
+    # request will be reviewed", a safe sentence (F19).
+    re.compile(
+        r"\brefund\b[^.?!]*\b(?:has been|is being|will be)\s+"
+        r"(?:processed|issued|approved|paid|credited|returned|completed|sent|made|"
+        r"deposited|refunded|on its way)\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"\b(your|the)\s+refund\s+(is|has been)\s+(approved|processed|issued|on its way)", re.IGNORECASE),
     re.compile(r"\b(i|we)( have|'ve)?\s+(issued|processed|sent|approved)\s+(your|the|a)\s+refund", re.IGNORECASE),
     # past-tense claim that the refund already happened ("I have refunded $20")
@@ -47,8 +55,30 @@ PROMISE_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+_NEGATION_RE = re.compile(r"\b(?:no|not|never)\s+(?:[A-Za-z]+\s+)?$", re.IGNORECASE)
+
+
+def _negated_immediately_before(reply: str, start: int) -> bool:
+    """True only for "no [word] refund…" / "not [word] refund…" at the match.
+
+    Deliberately narrow: a negation earlier in the sentence does not excuse a
+    later execution claim ("no doubt your refund will be processed").
+    """
+    boundary = max(reply.rfind(mark, 0, start) for mark in ".!?") + 1
+    return bool(_NEGATION_RE.search(reply[boundary:start]))
+
+
 def rejects_promise_language(reply: str) -> bool:
-    return any(pattern.search(reply) for pattern in PROMISE_PATTERNS)
+    for index, pattern in enumerate(PROMISE_PATTERNS):
+        for match in pattern.finditer(reply):
+            # The passive pattern starts at the noun ("refund has been issued").
+            # A sentence that *denies* execution — "no refund has been issued",
+            # "no partial refund has been issued" — is safe and must pass
+            # (F19). Only an immediately preceding negation counts.
+            if index == 0 and _negated_immediately_before(reply, match.start()):
+                continue
+            return True
+    return False
 
 
 class DraftOutput(BaseModel):

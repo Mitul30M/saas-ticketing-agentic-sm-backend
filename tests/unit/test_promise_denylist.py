@@ -27,6 +27,10 @@ KB_DIR = Path(__file__).resolve().parents[2] / "data" / "kb"
         "You'll get your refund in a few days [KB-006].",
         "I have refunded $20.03 to your card [KB-006].",
         "We've refunded the full amount [KB-006].",
+        "Your refund will be processed within 3 business days [KB-006].",
+        "The refund has been issued [KB-006].",
+        "Your refund is being processed [KB-006].",
+        "No doubt your refund will be processed [KB-006].",
     ],
 )
 def test_commitment_phrasings_are_denied(reply: str) -> None:
@@ -41,6 +45,13 @@ def test_commitment_phrasings_are_denied(reply: str) -> None:
         "A refund request must be approved by a human reviewer [KB-006].",
         "Plan changes take effect at the next billing cycle [KB-011].",
         "Requests for a refund outside the window need support review [KB-006].",
+        # F19: "refund … will be reviewed" is a review, not an execution claim.
+        "The refund request is currently pending approval and will be reviewed by our team [KB-009].",
+        "The refund request will be reviewed by a specialist [KB-006].",
+        # F19: denying execution is not promising it.
+        "No refund has been issued for INV-0004-M1 [KB-006].",
+        "No partial refund has been issued [KB-006].",
+        "The refund has not been issued [KB-006].",
     ],
 )
 def test_neutral_policy_sentences_pass(reply: str) -> None:

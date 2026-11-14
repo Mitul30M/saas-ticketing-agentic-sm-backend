@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.agent.nodes.common import trace_node
@@ -44,6 +45,41 @@ def parse_amount_cents(text: str) -> int:
     if not values or len(values) > 1:
         raise ValueError("no single unambiguous dollar amount in the ticket")
     return values.pop()
+
+
+def refund_proposal_is_eligible(invoice: dict[str, Any], amount_cents: int) -> bool:
+    """Whether `propose_refund` will accept this proposal.
+
+    A *presentation* hint, not a control: `propose_refund` re-checks every rule
+    server-side. The draft runs before the proposal, so without this it could
+    tell a customer a refund is under review and then have the tool refuse it
+    (E-015, F19). Any doubt -> False, which only makes the draft quieter.
+    """
+    if invoice.get("status") not in ("paid", "partially_refunded"):
+        return False
+    payments = [
+        payment for payment in invoice.get("payments") or []
+        if payment.get("status") == "succeeded"
+    ]
+    paid = sum(int(payment.get("amount_cents") or 0) for payment in payments)
+    refunded = sum(
+        int(payment.get("amount_refunded_cents") or 0) for payment in payments
+    )
+    if amount_cents <= 0 or amount_cents > paid - refunded:
+        return False
+    paid_ats = [
+        str(payment["paid_at"]) for payment in payments if payment.get("paid_at")
+    ]
+    if not paid_ats:
+        return False
+    try:
+        newest = max(datetime.fromisoformat(value) for value in paid_ats)
+        floor = settings.as_of - timedelta(days=settings.refund_window_days)
+        return newest >= floor
+    except (TypeError, ValueError):
+        # unparseable or mixed-awareness timestamps: stay quiet, let the tool
+        # decide (and the refusal path amend the draft)
+        return False
 
 
 def parse_target_plan(text: str, current_plan_id: str | None = None) -> str:
@@ -231,11 +267,16 @@ def make_tool_executor_node(registry: ToolRegistry):
                 # invoice up again. Hand it the same verified facts the reply
                 # branch gets, plus the amount about to go up for approval
                 # (F18: the old draft asked for a payment confirmation it had
-                # just read). A zero remainder is not a proposal, so it is
-                # omitted; the refusal path amends the draft instead.
+                # just read). Only announce the amount when the tool's own
+                # preconditions say it will be accepted; otherwise the draft
+                # would promise a proposal the refusal path then denies (F19).
                 "account_record": build_account_record(
                     data,
-                    requested_refund_cents=amount_cents if amount_cents > 0 else None,
+                    requested_refund_cents=(
+                        amount_cents
+                        if refund_proposal_is_eligible(data, amount_cents)
+                        else None
+                    ),
                 ),
             }
         subscription = registry.call(

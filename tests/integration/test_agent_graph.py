@@ -1019,3 +1019,43 @@ def test_plan_change_draft_reads_the_current_and_target_plan(
     assert "target_plan=PLAN-BUSINESS" in prompt
     assert result["account_record"]["record_type"] == "plan"
     assert result["action_proposed"] is True
+
+
+def test_out_of_window_refund_draft_does_not_announce_a_proposal(
+    db_pool: Any, migrated_conn: Any, two_customers: Any
+) -> None:
+    """F19: the draft runs before `propose_refund`, so it may only announce a
+    proposal the tool's own preconditions will accept. A 60-day-old payment is
+    outside the window: the draft states the record and the policy, then the
+    refusal path appends the business-rule sentence.
+    """
+    t = two_customers
+    migrated_conn.execute(
+        "UPDATE payments SET paid_at = '2026-09-01T12:00:00+00:00' WHERE invoice_id = %s",
+        (t.inv_a,),
+    )
+    ticket = _mk_ticket(
+        migrated_conn, t.alice_id, "ITST old refund",
+        f"Please refund the full amount of invoice {t.inv_a}.",
+    )
+    client = _DraftPromptRecorder("refund_request")
+    saver = make_checkpointer(settings.database_url)
+    graph = build_graph(db_pool, client=client, checkpointer=saver)
+    try:
+        result = _invoke(graph, ticket)
+    finally:
+        saver.conn.close()  # type: ignore[union-attr]
+
+    assert client.prompts, "the draft prompt was never sent"
+    prompt = client.prompts[-1]
+    assert f"invoice {t.inv_a}" in prompt
+    record_block = prompt.split("<<<ACCOUNT_RECORD", 1)[1].split("ACCOUNT_RECORD>>>", 1)[0]
+    assert "refund requested for approval" not in record_block
+
+    assert result["outcome"] == "escalated"
+    assert result["escalation"]["reason_code"] == "business_rule"
+    assert "outside the 30-day refund window" in result["escalation"]["detail"]
+    assert "support specialist will review" in str(result["draft"])
+    assert migrated_conn.execute(
+        "SELECT id FROM refund_requests WHERE ticket_id = %s", (ticket,)
+    ).fetchone() is None
