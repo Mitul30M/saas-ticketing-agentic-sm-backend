@@ -251,6 +251,10 @@ def test_tool_failure_code_and_retryable_flag_are_preserved(
 
     assert result.error is not None
     assert (result.error.code, result.error.retryable) == (code, retryable)
+    # the operator-facing trace keeps the sentence, not only the code
+    assert tracer.rows[0]["output"] == {
+        "error": {"code": code.value, "message": "reason", "retryable": retryable}
+    }
 
 
 # --------------------------------------------------------------------------- timeout

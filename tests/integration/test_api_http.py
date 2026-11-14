@@ -429,3 +429,30 @@ def test_metrics_summary_reports_counts(migrated_conn: Any, token: str) -> None:
 def test_admin_routes_are_absent_by_default(migrated_conn: Any, token: str) -> None:
     with TestClient(app) as client:
         assert client.post("/api/admin/seed", headers=AUTH).status_code == 404
+
+
+def test_trace_exposes_the_tool_error_message_without_payloads(
+    migrated_conn: Any, two_customers: Any, token: str
+) -> None:
+    """A failed tool used to surface only its code ("business_rule"); the sentence
+    that names the rule is what an operator needs. Whole payloads stay private."""
+    ticket = two_customers.ticket_id
+    migrated_conn.execute(
+        "INSERT INTO trace_events (trace_id, ticket_id, node, kind, status, error, output) "
+        "VALUES ('itst-trace-detail', %s, 'propose_refund', 'tool', 'error', "
+        "'business_rule', %s)",
+        (
+            str(ticket),
+            ('{"error": {"code": "business_rule", "message": '
+             '"invoice is outside the 30-day refund window", "retryable": false}}'),
+        ),
+    )
+    try:
+        with TestClient(app) as client:
+            items = client.get(f"/api/tickets/{ticket}/trace", headers=AUTH).json()["items"]
+    finally:
+        migrated_conn.execute("DELETE FROM trace_events WHERE trace_id='itst-trace-detail'")
+
+    row = next(item for item in items if item["trace_id"] == "itst-trace-detail")
+    assert row["error_detail"] == "invoice is outside the 30-day refund window"
+    assert "output" not in row

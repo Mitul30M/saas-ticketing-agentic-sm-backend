@@ -83,7 +83,7 @@ def build_graph(
                      safe_node("draft_reply", pool, make_draft_node(pool, client)))
     builder.add_node(
         "propose_actions",
-        safe_node("propose_actions", pool, make_propose_actions_node(registry)),
+        safe_node("propose_actions", pool, make_propose_actions_node(registry, pool)),
     )
     builder.add_node("approval_gate",
                      safe_node("approval_gate", pool, make_approval_gate_node()))

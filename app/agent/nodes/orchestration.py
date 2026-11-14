@@ -221,7 +221,38 @@ def make_tool_executor_node(registry: ToolRegistry):
     return tool_executor
 
 
-def make_propose_actions_node(registry: ToolRegistry):
+def refusal_sentence(kind: str, code: str | None) -> str:
+    """One deterministic, customer-safe line for a refused action.
+
+    The draft is written before the action is attempted, so it can read as if a
+    proposal exists ("once the proposal is reviewed..."). When the tool then
+    refuses, that is misleading to the operator. This sentence is appended to
+    the persisted draft instead of spending another LLM call, and it never
+    repeats internal numbers (cents, balances) back to the customer.
+    """
+    subject = "this refund" if kind == "refund" else "this plan change"
+    if code == "business_rule":
+        return (
+            f"We couldn't create {subject} automatically because it doesn't meet the "
+            "applicable policy. A support specialist will review your request and follow up."
+        )
+    if code == "ownership_mismatch":
+        return (
+            "We couldn't verify this request against your account, so a support specialist "
+            "will review it."
+        )
+    if code == "duplicate":
+        return (
+            "There is already an open request for this change. A support specialist will "
+            "review it."
+        )
+    return (
+        "We couldn't complete this automatically. A support specialist will review your "
+        "request."
+    )
+
+
+def make_propose_actions_node(registry: ToolRegistry, pool: Any | None = None):
     def propose_actions(state: AgentState) -> dict[str, Any]:
         context = state.get("action_context") or {}
         if context.get("kind") not in {"refund", "plan_change"}:
@@ -258,12 +289,28 @@ def make_propose_actions_node(registry: ToolRegistry):
             name = "propose_plan_change"
         result = registry.call(name, args, ticket_id=ticket_id, ctx=tool_context)
         if not result.ok:
+            code = result.error.code.value if result.error else None
+            base = str(state.get("draft") or "").strip()
+            refusal = refusal_sentence(str(context["kind"]), code)
+            amended = f"{base}\n\n{refusal}" if base else refusal
+            # The draft node already persisted the model text; amend the row so
+            # the UI never shows a proposal that does not exist.
+            if pool is not None:
+                with pool.connection() as conn:
+                    conn.execute(
+                        "UPDATE tickets SET draft_reply = %s WHERE id = %s",
+                        (amended, ticket_id),
+                    )
             return {
                 "outcome": "escalated",
                 "escalation": {
-                    "reason_code": result.error.code.value if result.error else "TOOL_FAILURE",
-                    "detail": "action proposal failed validation or a business rule",
+                    "reason_code": code or "TOOL_FAILURE",
+                    "detail": (
+                        f"action proposal refused: "
+                        f"{result.error.message if result.error else 'tool failure'}"
+                    ),
                 },
+                "draft": amended,
             }
         return {
             "action_proposed": True,

@@ -184,7 +184,11 @@ so for an exact `0 → AMOUNT` transcript use `docker compose down -v` + reseed.
 
 1. **A body without an invoice id escalates** for a refund ask (no amount ⇒ the planner uses the
    remainder, but without an invoice it cannot proceed). That is why #1 names `INV-0006-M4`.
-2. **On Groq, some answerable tickets still abstain** (`LOW_CONFIDENCE`, roughly 1 in 5). It is the
+2. **A refused action still shows a draft.** The draft is written before the proposal is attempted,
+   so it ends with a deterministic line ("We couldn't create this refund automatically… a support
+   specialist will review your request."). The precise rule is on the trace row now
+   (`error_detail`), not only the code.
+3. **On Groq, some answerable tickets still abstain** (`LOW_CONFIDENCE`, roughly 1 in 5). It is the
    designed safe path, not a bug — the ticket is parked for a human with the reason visible. If you
    need a deterministic walkthrough, run the same flow on the stub (`LLM_PROVIDER=stub`), where the
    drafts are canned but every gate, decision and database constraint is identical.

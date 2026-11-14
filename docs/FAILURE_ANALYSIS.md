@@ -301,6 +301,37 @@ is not high*. `triage_v2` added examples for category but not for priority bound
 high or medium, not urgent; informational billing question ⇒ medium, not high), measured with
 `make dev-triage` **before** any recapture. Do not ship it on the strength of the eval split.
 
+## F16 — A refused action left a draft that implied a proposal, and the trace dropped the reason
+
+**Tickets:** `3160b66d` (resubmitted refund for an invoice that was already refunded in full) and
+`fd664554` ("refund the full 20.02" on INV-0005-M3: 90 days old, 1001 of 2002 already refunded).
+
+**Expected:** the ticket escalates on the business rule, and the operator can see *which* rule and
+that no proposal exists.
+**Actual:** `escalation_reason=business_rule`, `trace_events.output = null`, and the persisted draft
+still read "…before creating a refund proposal for approval. Once the proposal is reviewed by a
+human approver, we'll update you…" — a proposal that was never created.
+
+**Root cause (two, both small):**
+1. `ToolRegistry._trace` wrote `output=None` whenever a tool failed, so only the error *code*
+   reached the dashboard. `ToolResult.error.message` ("invoice is outside the 30-day refund
+   window") was discarded.
+2. The graph drafts **before** it proposes (`draft_reply → propose_actions`), and the draft node is
+   what persists `tickets.draft_reply`. A later refusal therefore cannot correct the text.
+
+**Fix:**
+- Trace rows keep the typed error: `output = {"error": {code, message, retryable}}` on failure, so
+  the UI can show the sentence next to the code.
+- On a refusal, `propose_actions` appends one deterministic, customer-safe line to the persisted
+  draft (`refusal_sentence(kind, code)`: business rule / ownership / duplicate / generic) and
+  updates the row. No extra LLM call, no internal numbers (cents/balances) leaked to the customer;
+  the operator still sees the precise reason in the trace and the escalation detail.
+- The escalation `detail` now carries the tool's message instead of a generic sentence.
+
+**Evidence:** `tests/unit/test_refusal_copy.py` (wording per code, no digits/cents),
+`tests/unit/test_tool_registry.py` (trace keeps the message), and the injection test in
+`tests/integration/test_agent_graph.py` now asserts the persisted draft was amended. 346 tests pass.
+
 ---
 
 ## Method notes

@@ -433,7 +433,7 @@ Field notes:
 |---|---|---|
 | `triage_reasons` | `{category, priority, sentiment}` strings \| null | one sentence per label — render as "why" tooltips |
 | `kb_supported` | bool \| null | `null` when grounding never ran (e.g. escalated at intake) |
-| `draft_reply` | string \| null | the agent's proposed reply; **not sent** |
+| `draft_reply` | string \| null | the agent's proposed reply; **not sent**. When an action was refused, a deterministic line is appended ("…A support specialist will review your request.") because the draft is written before the proposal is attempted |
 | `draft_citations` | string[] \| null | `["KB-006", …]` — every id is in the retrieved set by construction |
 | `escalation_reason` | string \| null | §5.4; the reason this run stopped |
 | `injection_suspected` | bool | banner trigger — text looked like a prompt-injection attempt |
@@ -507,6 +507,7 @@ just empty).
 | `kind` | `node` / `tool` / `llm` |
 | `status` | `ok` / `error` |
 | `error` | tool error code on failure (`invalid_input`, `timeout`, …), else null |
+| `error_detail` | string \| null — on a failed tool row, the tool's own sentence ("invoice is outside the 30-day refund window"). Render it next to `error`; full input/output payloads are deliberately not exposed on this endpoint |
 | `duration_ms` | integer ms |
 | `tokens_in/out`, `cost_usd`, `cache_hit` | `null` for `tool` rows; `0` / `false` in stub mode; `cost_usd` is a **string** |
 | `started_at` | ISO-8601 |
@@ -1003,7 +1004,8 @@ export interface TraceEvent {
   node: string;
   kind: TraceKind;
   status: "ok" | "error";
-  error: string | null;
+  error: string | null;          // code, e.g. "business_rule"
+  error_detail: string | null;   // the sentence that names the rule (tool rows)
   duration_ms: number | null;
   tokens_in: number | null;
   tokens_out: number | null;

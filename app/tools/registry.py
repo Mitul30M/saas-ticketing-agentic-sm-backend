@@ -137,7 +137,12 @@ class ToolRegistry:
                 node=name,
                 kind="tool",
                 input_=traced_args,
-                output=result.data if result.ok else None,
+                # On failure keep the typed error, not just the code: the
+                # dashboard showed "business_rule" with no hint which rule, and
+                # the message is the operator's only clue.
+                output=result.data if result.ok else (
+                    {"error": result.error.model_dump(mode="json")} if result.error else None
+                ),
                 status="ok" if result.ok else "error",
                 error=error_code,
                 duration_ms=duration_ms,

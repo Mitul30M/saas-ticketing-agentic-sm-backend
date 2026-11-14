@@ -137,10 +137,23 @@ def ticket_trace(ticket_id: UUID, _: Protected, pool: Pool) -> dict[str, Any]:
     with pool.connection() as conn:
         rows = conn.execute(
             "SELECT trace_id, node, kind, status, error, duration_ms, tokens_in, "
-            "tokens_out, cost_usd, cache_hit, started_at FROM trace_events "
+            "tokens_out, cost_usd, cache_hit, started_at, output FROM trace_events "
             "WHERE ticket_id = %s ORDER BY id", (str(ticket_id),)
         ).fetchall()
-    return {"items": rows}
+    items = []
+    for row in rows:
+        item = dict(row)
+        # A failure used to carry only the code ("business_rule"), which tells an
+        # operator nothing. The tool's message is stored in output.error; expose
+        # just that sentence instead of the whole payload (input/output can be
+        # large or contain ticket text).
+        detail = None
+        if item["status"] == "error" and isinstance(item.get("output"), dict):
+            detail = (item["output"].get("error") or {}).get("message")
+        item["error_detail"] = detail
+        item.pop("output", None)
+        items.append(item)
+    return {"items": items}
 
 
 @router.post("/tickets/{ticket_id}/run", status_code=202)

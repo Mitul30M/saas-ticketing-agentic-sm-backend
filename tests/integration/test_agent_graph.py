@@ -725,6 +725,11 @@ def test_injection_refund_ticket_flagged_and_proposal_denied(
         assert migrated_conn.execute(
             "SELECT id FROM outbox WHERE ticket_id = %s", (ticket,)
         ).fetchone() is None
+        # the draft was written before the refusal, so it is amended in the DB
+        draft = migrated_conn.execute(
+            "SELECT draft_reply FROM tickets WHERE id = %s", (ticket,)
+        ).fetchone()["draft_reply"]
+        assert draft and "support specialist will review" in draft
     finally:
         graph._test_saver.conn.close()  # type: ignore[attr-defined]
 
