@@ -137,7 +137,7 @@ def ticket_trace(ticket_id: UUID, _: Protected, pool: Pool) -> dict[str, Any]:
     with pool.connection() as conn:
         rows = conn.execute(
             "SELECT trace_id, node, kind, status, error, duration_ms, tokens_in, "
-            "tokens_out, cost_usd, cache_hit, started_at, output FROM trace_events "
+            "tokens_out, cost_usd, cache_hit, started_at, output, input FROM trace_events "
             "WHERE ticket_id = %s ORDER BY id", (str(ticket_id),)
         ).fetchall()
     items = []
@@ -151,6 +151,16 @@ def ticket_trace(ticket_id: UUID, _: Protected, pool: Pool) -> dict[str, Any]:
         if item["status"] == "error" and isinstance(item.get("output"), dict):
             detail = (item["output"].get("error") or {}).get("message")
         item["error_detail"] = detail
+        # A successful escalation is not an error, but its "why" lives in the
+        # tool input. Expose that one sentence so the console is not left with a
+        # bare NEEDS_HUMAN_JUDGEMENT code.
+        escalation_detail = None
+        if item["node"] == "escalate_to_human" and isinstance(item.get("input"), dict):
+            raw = item["input"].get("detail")
+            if isinstance(raw, str) and raw.strip():
+                escalation_detail = raw.strip()[:500]
+        item["detail"] = escalation_detail
+        item.pop("input", None)
         item.pop("output", None)
         items.append(item)
     return {"items": items}

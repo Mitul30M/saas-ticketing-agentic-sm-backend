@@ -456,3 +456,34 @@ def test_trace_exposes_the_tool_error_message_without_payloads(
     row = next(item for item in items if item["trace_id"] == "itst-trace-detail")
     assert row["error_detail"] == "invoice is outside the 30-day refund window"
     assert "output" not in row
+
+
+def test_trace_exposes_a_successful_escalation_reason_without_payloads(
+    migrated_conn: Any, two_customers: Any, token: str
+) -> None:
+    """An intentional escalation is a successful tool row; its reason lives in
+    the input. The console needs that sentence, not a bare reason code, but the
+    rest of the payload stays private."""
+    ticket = two_customers.ticket_id
+    migrated_conn.execute(
+        "INSERT INTO trace_events (trace_id, ticket_id, node, kind, status, input, output) "
+        "VALUES ('itst-trace-escalation', %s, 'escalate_to_human', 'tool', 'ok', %s, %s)",
+        (
+            str(ticket),
+            ('{"ticket_id": "x", "reason_code": "NEEDS_HUMAN_JUDGEMENT", '
+             '"detail": "refund request has no verifiable invoice reference"}'),
+            ('{"escalated": true, "reason_code": "NEEDS_HUMAN_JUDGEMENT"}'),
+        ),
+    )
+    try:
+        with TestClient(app) as client:
+            items = client.get(f"/api/tickets/{ticket}/trace", headers=AUTH).json()["items"]
+    finally:
+        migrated_conn.execute(
+            "DELETE FROM trace_events WHERE trace_id='itst-trace-escalation'"
+        )
+
+    row = next(item for item in items if item["trace_id"] == "itst-trace-escalation")
+    assert row["detail"] == "refund request has no verifiable invoice reference"
+    assert row["error_detail"] is None
+    assert "input" not in row and "output" not in row

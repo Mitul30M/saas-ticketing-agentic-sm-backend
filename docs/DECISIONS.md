@@ -598,3 +598,12 @@ Format: 3–5 lines per decision. Newest at the bottom.
   claim so the draft stays quiet.
 - `draft_v7` says "proposed for approval", not "pending in the system". The refusal sentence is
   still the final word when the tool rejects the action.
+
+### 2026-11-14 · F20/F21: show why an escalation happened, and flag a claimed email
+- An intentional escalation is a successful tool row, so the old trace API (error rows only) hid its
+  reason. `/trace` now exposes only `input.detail` for `escalate_to_human` as `detail`; the UI shows
+  it as "Why:" and as muted timeline text, not as an error. The tool call itself is unchanged.
+- `identity_claim` now matches "my email is…", so a body that asserts a different address raises the
+  flag and the operator banner. Identity resolution still comes from `ticket.from_email`; the flag
+  can only tighten attention, never change lookup or permissions.
+- Both are observability fixes: the E-006 decision (escalate/ambiguity) was already correct.

@@ -25,7 +25,8 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"\byou are now\b|\bact as\b|\bpretend (?:to be|you are)\b|\bdeveloper mode\b",
         re.IGNORECASE)),
     ("identity_claim", re.compile(
-        r"\bi am (?:customer|user) |\bthis is (?:customer|user) |my customer id is ",
+        r"\bi am (?:customer|user) |\bthis is (?:customer|user) |my customer id is |"
+        r"\bmy (?:email|e-mail)(?: address)? is ",
         re.IGNORECASE)),
     ("tool_probe", re.compile(
         r"\brun (?:sql|a query)\b|\bexecute (?:sql|the query)\b|\bdelete from\b|\bdrop table\b",

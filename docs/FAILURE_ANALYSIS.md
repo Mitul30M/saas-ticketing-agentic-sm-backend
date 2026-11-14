@@ -491,6 +491,53 @@ fresh submission (`3c57ec04`). 369 tests pass.
 
 ---
 
+## F20 — An intentional escalation's reason was invisible in the console (fixed)
+
+**Symptom:** seeded ticket `cca2fcb9-eb5b-54cd-8532-00360d9025dd` (eval `E-006`, a trial customer with
+no invoices) escalated `NEEDS_HUMAN_JUDGEMENT`. The console trace showed only
+`triage → lookup_customer → escalate_to_human → finalize`, and the escalation card said
+"Needs a person to decide" — with no reason anywhere.
+
+**Root cause:** the sentence existed in `trace_events.input.detail`
+("refund request has no verifiable invoice reference"), but `GET /tickets/{id}/trace` exposed only
+`error_detail`, and only for rows with `status='error'`. An intentional escalation is a **successful**
+tool row, so the reason was dropped before the UI. This is an observability gap, not a decision bug:
+E-006's gold is `escalate` / `ambiguity`, and the agent used the transport sender, not the email
+claimed in the body.
+
+**Fix:**
+- `/trace` now selects the row input and exposes only `input.detail` for `escalate_to_human` rows as
+  a new `detail` field (trimmed to 500 chars); the rest of the input/output is still stripped.
+- The console's `TraceEvent` type carries `detail`; `latestEscalationDetail()` feeds the escalation
+  card's **"Why:"** line, and the timeline renders it as muted text, never as an error.
+
+**Evidence:** `tests/integration/test_api_http.py::test_trace_exposes_a_successful_escalation_reason_without_payloads`,
+`lib/trace.test.ts` (frontend), and the live ticket now returns
+`detail: "refund request has no verifiable invoice reference"`.
+
+---
+
+## F21 — A claimed email was not flagged as an identity claim (fixed)
+
+**Symptom:** the same ticket's body says "My email is test.tester@example.com" while the transport
+sender is `michael.rodriguez.95@example.nimbus.test`. The ticket had `injection_suspected=false`,
+`flags=[]`, and no `injection_screen` trace row, so the console showed no warning.
+
+**Root cause:** `identity_claim` matched "I am customer…", "this is customer…" and
+"my customer id is…", but not "my email is…". The agent still resolved identity from
+`ticket.from_email` (invariant 11), so no wrong lookup happened — the operator lost the hint, not the
+safety.
+
+**Fix:** `identity_claim` now also matches `my (email|e-mail)( address)? is`. This is flag-only: it
+adds the flag and the injection banner, never changes the route or permissions. Re-running
+`cca2fcb9` now stores `flags=['identity_claim']`, `injection_suspected=true`, and writes the
+`injection_screen` row.
+
+**Evidence:** a new AT3 injection variant in `tests/safety/test_phase4_safety.py` (the plan must stay
+identical to the clean control); live rerun of `cca2fcb9`.
+
+---
+
 ## Method notes
 
 - Every finding above is reproducible: `make eval-stub` for the harness, `make eval-ablation` for
